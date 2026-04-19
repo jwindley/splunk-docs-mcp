@@ -8,6 +8,11 @@ Usage
   uv run splunk-crawl --sources enterprise-security --section user-guide   # dev/test
   uv run splunk-crawl --full                            # re-extract everything
   uv run splunk-crawl --help
+
+After each crawl the CLI runs a post-crawl embedding pass that generates a
+384-dimensional sentence embedding (all-MiniLM-L6-v2) for every document that
+doesn't have one yet and stores it as a BLOB in the documents table.  Use
+--full to force re-embedding of all documents.
 """
 
 import argparse
@@ -18,6 +23,7 @@ from pathlib import Path
 
 from .config import DOCS_DIR, DB_PATH, PHASE1_SOURCES, SOURCES_BY_ID, CrawlSource
 from .crawler import crawl_source
+from . import db as db_module
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -114,8 +120,72 @@ async def _run(args: argparse.Namespace) -> int:
     for s in all_stats:
         print(f"  {s.summary()}")
 
+    # Post-crawl: generate sentence embeddings for any docs that don't have one
+    _embed_pass(args, sources)
+
     total_failures = sum(s.failed for s in all_stats)
     return 1 if total_failures > 0 else 0
+
+
+def _embed_pass(args: argparse.Namespace, sources: list[CrawlSource]) -> None:
+    """
+    Generate and store sentence embeddings for documents that don't have one.
+
+    Loads all-MiniLM-L6-v2 via sentence-transformers (lazy — model is only
+    downloaded on first run, then cached in ~/.cache/torch/sentence_transformers).
+    Encodes the full title + content_md text, stores the 384-dim float32 vector
+    as a BLOB in documents.embedding.
+
+    With --full, clears existing embeddings for the given sources first so every
+    document is re-embedded from scratch.
+    """
+    logger = logging.getLogger(__name__)
+
+    conn = db_module.get_connection(args.db)
+    db_module.init_db(conn)
+
+    # --full: clear embeddings for the crawled sources so all docs are re-embedded
+    if args.full:
+        for source in sources:
+            conn.execute(
+                "UPDATE documents SET embedding = NULL WHERE source = ?",
+                (source.source_id,),
+            )
+        conn.commit()
+        logger.info("Cleared existing embeddings for re-embedding (--full).")
+
+    # Collect docs that need embedding across all crawled sources
+    docs: list = []
+    for source in sources:
+        docs.extend(
+            db_module.get_documents_without_embeddings(conn, source.source_id)
+        )
+
+    if not docs:
+        logger.info("All documents already have embeddings — skipping embed pass.")
+        return
+
+    logger.info("Loading embedding model (all-MiniLM-L6-v2)…")
+    from sentence_transformers import SentenceTransformer  # noqa: PLC0415
+    model = SentenceTransformer("all-MiniLM-L6-v2")
+
+    logger.info("Generating embeddings for %d documents…", len(docs))
+    texts = [f"{doc['title']}\n\n{doc['content_md']}" for doc in docs]
+
+    # Batch encode — sentence-transformers handles padding/truncation internally.
+    # show_progress_bar gives a tqdm bar for longer runs.
+    embeddings = model.encode(
+        texts,
+        normalize_embeddings=True,
+        batch_size=32,
+        show_progress_bar=True,
+    )
+
+    for doc, emb in zip(docs, embeddings):
+        db_module.update_embedding(conn, doc["id"], emb.astype("float32").tobytes())
+
+    conn.commit()
+    logger.info("Embedding pass complete — %d documents embedded.", len(docs))
 
 
 def main() -> None:

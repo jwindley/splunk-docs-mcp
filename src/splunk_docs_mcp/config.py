@@ -75,6 +75,41 @@ _ES_SECTIONS = [
     "enterprise-security-editions",
 ]
 
+# Enterprise URL structure: /en/splunk-enterprise/{section}/{manual}/{version}/...
+# Seeds use {section}/{version} which may redirect — the landing page is the
+# primary reliable seed; section seeds are belt-and-braces extras.
+_ENTERPRISE_SECTIONS = [
+    "get-started",
+    "administer",
+    "search",
+    "spl-search-reference",
+    "manage-knowledge-objects",
+    "forward-and-process-data",
+    "get-data-in",
+    "create-dashboards-and-reports",
+    "alert-and-respond",
+    "apply-machine-learning",
+    "leverage-rest-apis",
+    "connect-relational-databases",
+]
+
+# Cloud shares the same section slugs as Enterprise for most manuals.
+# Cloud-exclusive sections (ACS API, edge processor, ingest processor) are
+# discovered via BFS from the landing page.
+_CLOUD_SECTIONS = [
+    "get-started",
+    "administer",
+    "search",
+    "spl-search-reference",
+    "manage-knowledge-objects",
+    "forward-and-process-data",
+    "create-dashboards-and-reports",
+    "alert-and-respond",
+    "apply-machine-learning",
+    "leverage-rest-apis",
+    "connect-relational-databases",
+]
+
 PHASE1_SOURCES: list[CrawlSource] = [
     CrawlSource(
         source_id="enterprise-security",
@@ -108,6 +143,37 @@ PHASE1_SOURCES: list[CrawlSource] = [
             "/10.2/configuration-file-reference/"
         ),
     ),
+    CrawlSource(
+        source_id="splunk-enterprise",
+        display_name="Splunk Enterprise 10.2",
+        version="10.2",
+        seed_urls=[
+            # Landing page is the primary reliable entry point
+            "https://help.splunk.com/en/splunk-enterprise/",
+            # Section-level seeds — may redirect to a deeper page; the redirect
+            # bug fix (2026-04-18) ensures relative links resolve correctly.
+            *[
+                f"https://help.splunk.com/en/splunk-enterprise/{s}/10.2"
+                for s in _ENTERPRISE_SECTIONS
+            ],
+        ],
+        url_prefix="https://help.splunk.com/en/splunk-enterprise/",
+    ),
+    CrawlSource(
+        source_id="splunk-cloud",
+        display_name="Splunk Cloud Platform 10.3.2512",
+        version="10.3.2512",
+        seed_urls=[
+            # Landing page is the primary reliable entry point
+            "https://help.splunk.com/en/splunk-cloud-platform/",
+            # Section-level seeds
+            *[
+                f"https://help.splunk.com/en/splunk-cloud-platform/{s}/10.3.2512"
+                for s in _CLOUD_SECTIONS
+            ],
+        ],
+        url_prefix="https://help.splunk.com/en/splunk-cloud-platform/",
+    ),
     # Future sources (not yet active):
     #
     # CrawlSource(
@@ -116,14 +182,6 @@ PHASE1_SOURCES: list[CrawlSource] = [
     #     version="current",
     #     seed_urls=["https://lantern.splunk.com/"],
     #     url_prefix="https://lantern.splunk.com/",
-    # ),
-    #
-    # CrawlSource(
-    #     source_id="splunk-enterprise",
-    #     display_name="Splunk Enterprise Documentation",
-    #     version="9.x",
-    #     seed_urls=["https://help.splunk.com/en/splunk-enterprise/..."],
-    #     url_prefix="https://help.splunk.com/en/splunk-enterprise/",
     # ),
 ]
 

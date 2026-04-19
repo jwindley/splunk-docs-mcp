@@ -37,7 +37,6 @@ The goal is a public GitHub repo where users never run the crawl. When Phase 1 P
 - **Lantern** — `lantern.splunk.com` (new `CrawlSource` entry only)
 - **Core Splunk Enterprise docs** — help.splunk.com (new `CrawlSource` entry only)
 - **SPL examples library** — curated JSON → separate `spl_examples` DB table + `search_spl` MCP tool (stub already in `db.py`)
-- **Vector / semantic search** — `embedding BLOB` column stub noted in `db.py`; future `search_docs_semantic` tool
 - **Multi-version crawling** — `version` column already in schema; `search_docs` has a comment marking where to add a `version` filter parameter
 
 ---
@@ -56,6 +55,7 @@ The goal is a public GitHub repo where users never run the crawl. When Phase 1 P
 | **asyncio BFS crawler** | `asyncio.Queue` + N worker tasks + `queue.join()` — correct termination even when workers discover new links during processing |
 | **WAL mode SQLite** | `PRAGMA journal_mode=WAL` — MCP server can read while crawler writes |
 | **SHA-256 content hash** | Incremental re-crawl: skip pages whose raw HTML hasn't changed |
+| **sentence-transformers** (`all-MiniLM-L6-v2`) | Local offline embeddings (384 dims); generated at crawl time; stored as BLOB in `documents.embedding` |
 
 ---
 
@@ -79,7 +79,7 @@ splunk-docs-mcp/
 │       ├── extractor.py   ← HTML→Markdown + URL metadata parsing
 │       ├── crawler.py     ← async BFS crawler
 │       ├── cli.py         ← crawl CLI entry point (argparse)
-│       └── server.py      ← MCP server + 5 tool definitions
+│       └── server.py      ← MCP server + 6 tool definitions
 └── data/
     ├── .gitkeep
     └── docs/              ← Markdown files written at crawl time (gitignored)
@@ -91,10 +91,10 @@ splunk-docs-mcp/
 
 ```bash
 uv run splunk-mcp                                                # start MCP server (stdio)
-uv run splunk-crawl                                             # crawl all Phase 1 sources
+uv run splunk-crawl                                             # crawl all Phase 1 sources + embed
 uv run splunk-crawl --sources enterprise-security               # single source
 uv run splunk-crawl --sources enterprise-security --section user-guide  # single section (dev/test)
-uv run splunk-crawl --full                                      # re-extract even unchanged pages
+uv run splunk-crawl --full                                      # re-extract + re-embed everything
 ```
 
 ---
@@ -117,6 +117,9 @@ DB connection opened once on first use, reused across all tool calls. Simpler an
 
 ### BM25 title weighting
 `bm25(documents_fts, 10.0, 1.0)` weights title matches 10× higher than body matches. Lower score = better match (SQLite BM25 convention).
+
+### Vector search — whole-document embeddings, in-process cosine similarity
+Each document is embedded as a single vector (title + full content_md, truncated to 256 tokens by the model). Embeddings are 384-dim float32 BLOBs stored on `documents.embedding`. At query time all embeddings are loaded into a NumPy matrix and the dot product is computed in-process — O(n) but fast enough for ~1 000 documents (sub-ms arithmetic). No separate vector DB or extension needed. Model is **eagerly loaded at server startup** (`SentenceTransformer` instantiated at module level in `server.py`) so the first `search_docs_semantic` call has no model-load penalty.
 
 ---
 
@@ -146,11 +149,26 @@ Files include YAML frontmatter with `title`, `url`, `source`, `version`, `sectio
 
 | Tool | Purpose |
 |------|---------|
-| `search_docs` | BM25 FTS5 keyword search; `query`, optional `source`, `limit=5` |
+| `search_docs` | BM25 FTS5 keyword search; best for exact terms, config key names, quoted phrases |
+| `search_docs_semantic` | Cosine-similarity vector search (all-MiniLM-L6-v2); best for natural-language / concept queries |
 | `get_page` | Full Markdown content by exact URL |
 | `list_sections` | Source → section → page count inventory |
 | `browse_section` | All pages in a section (title + URL list) |
-| `get_index_info` | DB stats: total pages, sources, last crawl time, DB size |
+| `get_index_info` | DB stats: total pages, embedded pages, sources, last crawl time, DB size |
+
+### Tool usage decision tree (encoded in server `instructions`; target 3–4 calls per question)
+
+| Situation | Recommended path | Target calls |
+|-----------|-----------------|--------------|
+| Topic known, section known | `browse_section` → `get_page` | 2 |
+| Topic known, section uncertain | `list_sections` → `browse_section` → `get_page` | 3 |
+| Unknown — exact term / config key | `search_docs` → `get_page` | 2–3 |
+| Unknown — concept / natural language | `search_docs_semantic` → `get_page` | 2–3 |
+| Poor results from first search | Switch tools once → `get_page` → **STOP** | ≤4 |
+
+**Hard limits per question:** 2 search calls total · 1 `list_sections` call · 3 `get_page` calls · 0 `get_index_info` calls unless user asks.
+
+The full decision tree text lives in the `instructions=` argument to `FastMCP(...)` in `server.py`. Edit it there — do not duplicate it here.
 
 ---
 

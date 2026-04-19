@@ -1,43 +1,9 @@
 # TODO — splunk-docs-mcp
 
-_Last updated: 2026-04-18_
+_Last updated: 2026-04-19_
 
 ---
 
-## 🔴 Priority 1 — Write README
-
-The project is functionally complete but has no user-facing documentation. A new user can't set it up without it.
-
-Create `README.md` with:
-- What this project is (one paragraph — local MCP server for Splunk docs, version-specific, no hallucination)
-- Prerequisites: `uv`, Python 3.12
-- Setup: `git clone`, `uv sync`
-- Crawl command: `uv run splunk-crawl` (and how long it takes / what it produces)
-- MCP config JSON block for Claude Desktop / Claude Code
-- Available MCP tools (table: name, what it does, key params)
-- Development tip: `--sources enterprise-security --section user-guide` for fast pipeline test without a full crawl
-
----
-
-## 🔴 Priority 2 — End-to-end MCP tool test
-
-The server starts and tools are registered, but they haven't been exercised against the live fully-populated DB. Do this before considering Phase 1 done.
-
-Start the server:
-```bash
-uv run splunk-mcp
-```
-
-Test queries to run (via Claude Desktop or an MCP client):
-- `search_docs("correlation rule")` — should return ES 8.5 results
-- `search_docs("transforms.conf")` — should return admin-manual results
-- `search_docs("notable event", source="enterprise-security")` — source filter
-- `get_page(<url from search result>)` — full Markdown content
-- `list_sections()` — should show both sources with all 6 ES sections + admin-manual
-- `browse_section("administer", "enterprise-security")` — should list many pages (not just 1)
-- `get_index_info()` — should show ~959 total pages, last crawl timestamp
-
----
 
 ## 🟡 Priority 3 — Public release distribution (Phase 2, after POC is done)
 
@@ -49,6 +15,12 @@ The intended distribution model for public GitHub use:
 - [ ] **README update** — replace crawl step with `uv run splunk-setup`; add data freshness note
 
 See PLAN.md "Phase 2" section for full implementation details.
+
+---
+
+## ⚪ Priority 5 — Future / optional (no current need)
+
+- [ ] **Cross-version embedding reuse** — when crawling a new version (e.g. ES 8.5 → 8.6), many pages are identical. Before generating an embedding for a new URL, check if any existing document has the same `content_hash` and copy that embedding instead of re-encoding. Would make the embed pass near-instant for unchanged pages on a version upgrade. Only worth building once multi-version crawling is active.
 
 ---
 
@@ -65,6 +37,12 @@ See PLAN.md "Phase 2" section for full implementation details.
 
 ## ✅ Done
 
+- [x] **Vector/semantic search** — `embedding BLOB` on `documents` table; all-MiniLM-L6-v2 via sentence-transformers; post-crawl embedding pass in `cli.py`; `search_docs_semantic` MCP tool (2026-04-19). Re-run `uv run splunk-crawl` to populate embeddings for existing DBs.
+- [x] **Eager model loading** — `SentenceTransformer` instantiated at module level in `server.py`; eliminates 6 s first-call delay (2026-04-19)
+- [x] **MCP instructions decision tree** — `FastMCP(instructions=...)` rewritten as explicit 5-branch decision tree with hard call-count limits; targets 3–4 tool calls per question (2026-04-19)
+- [x] End-to-end MCP tool test — all 5 tools verified against live DB (2026-04-19); DB queries 5–38 ms
+- [x] `README.md` — setup, crawl, MCP config, tool reference, dev tips
+- [x] Timing logging in `server.py` — each tool call logs duration in ms to stderr
 - [x] `pyproject.toml` with all dependencies and entry points
 - [x] `.gitignore` (Python-appropriate, replaced Node.js template)
 - [x] `.python-version` (`3.12`)

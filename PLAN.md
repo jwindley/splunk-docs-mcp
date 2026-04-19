@@ -1,12 +1,16 @@
 # Build Plan — splunk-docs-mcp
 
-_Last updated: 2026-04-18_
+_Last updated: 2026-04-19_
 
 ---
 
 ## Current Status
 
-**Phase 1 is feature-complete and the index is fully populated.** All code is written, both crawler bugs are fixed, and a successful full crawl has been verified. The MCP server is ready to use — it just needs an end-to-end tool test and a README before the project can be considered done.
+**Phase 1 is complete.** All code is written, crawled, tested, and documented. The MCP server is in use and working — DB queries run in 5–38 ms, tool results verified 2026-04-19.
+
+Latest changes (2026-04-19):
+- `search_docs_semantic` model now eagerly loaded at server startup (eliminates 6 s first-call delay)
+- `server.py` `instructions` string rewritten as an explicit decision tree with hard call limits (target: 3–4 tool calls per question, down from 7–8)
 
 ---
 
@@ -19,15 +23,15 @@ _Last updated: 2026-04-18_
 | `.python-version` | ✅ Done | `3.12` |
 | `src/splunk_docs_mcp/__init__.py` | ✅ Done | Empty package init |
 | `src/splunk_docs_mcp/config.py` | ✅ Done | `CrawlSource` dataclass, `PHASE1_SOURCES`, `SOURCES_BY_ID`, paths, headers |
-| `src/splunk_docs_mcp/db.py` | ✅ Done | Schema, connection factory, FTS5 + triggers, all query helpers |
+| `src/splunk_docs_mcp/db.py` | ✅ Done | Schema, connection factory, FTS5 + triggers, all query helpers, embedding helpers, `search_docs_semantic` |
 | `src/splunk_docs_mcp/extractor.py` | ✅ Done | trafilatura primary, BS4+markdownify fallback, `parse_url_metadata`, `write_markdown_file` |
-| `src/splunk_docs_mcp/server.py` | ✅ Done | FastMCP app + 5 tools: `search_docs`, `get_page`, `list_sections`, `browse_section`, `get_index_info` |
-| `src/splunk_docs_mcp/cli.py` | ✅ Done | argparse with `--sources`, `--section`, `--concurrency`, `--delay`, `--full`, `--db`, `--docs-dir`, `--verbose` |
+| `src/splunk_docs_mcp/server.py` | ✅ Done | FastMCP app + 6 tools: `search_docs`, `search_docs_semantic`, `get_page`, `list_sections`, `browse_section`, `get_index_info` |
+| `src/splunk_docs_mcp/cli.py` | ✅ Done | argparse with `--sources`, `--section`, `--concurrency`, `--delay`, `--full`, `--db`, `--docs-dir`, `--verbose`; post-crawl embedding pass |
 | `src/splunk_docs_mcp/crawler.py` | ✅ Done | Two bugs fixed 2026-04-18; verified with full crawl |
 | `data/.gitkeep` | ✅ Done | |
 | `data/docs/.gitkeep` | ✅ Done | |
 | `CLAUDE.md` / `PLAN.md` / `TODO.md` | ✅ Done | Session context files |
-| `README.md` | ⬜ Not done | Setup and usage docs for end users |
+| `README.md` | ✅ Done | Setup and usage docs for end users |
 
 ---
 
@@ -36,7 +40,7 @@ _Last updated: 2026-04-18_
 - **Full crawl:** `uv run splunk-crawl` completes successfully for both sources
 - **Index coverage:** 743 ES pages + 216 admin-manual pages (959 total), all sections populated
 - **Incremental re-crawl:** unchanged pages skipped via SHA-256 hash comparison
-- **MCP server starts:** `uv run splunk-mcp` runs on stdio, all 5 tools registered
+- **MCP server starts:** `uv run splunk-mcp` runs on stdio, all 6 tools registered
 - **SQLite WAL mode:** server can read while crawler writes
 - **`--section` dev flag:** limits crawl to one section for fast pipeline testing
 - **Version filtering:** crawler only indexes ES 8.5 pages, ignores cross-version nav links
@@ -44,9 +48,6 @@ _Last updated: 2026-04-18_
 ---
 
 ## What Is Incomplete
-
-- **README** — no user-facing setup/usage documentation yet (see TODO Priority 1)
-- **MCP tools not yet manually tested end-to-end** — server starts but tools haven't been exercised against the live populated DB (see TODO Priority 2)
 
 ---
 
@@ -77,9 +78,7 @@ The 2 ES failures are expected to be transient 404s or network blips, not struct
 
 ## Next Steps (priority order)
 
-1. **Write README** — setup, crawl, MCP config, tool reference (see TODO Priority 1)
-2. **End-to-end MCP tool test** — verify all 5 tools against the live DB (see TODO Priority 2)
-3. *(Optional)* Nice-to-have improvements — see TODO Priority 3
+Phase 1 is complete, including vector/semantic search (2026-04-19). Next up is Phase 2 (public release distribution) — see TODO Priority 3.
 
 ---
 
@@ -118,5 +117,5 @@ Replace "run splunk-crawl" with "run splunk-setup"; add data freshness note.
 
 - Additional crawl sources: Lantern, core Splunk Enterprise (add `CrawlSource` to `config.py` only)
 - SPL examples library: `spl_examples` table + `search_spl` tool (schema stub in `db.py`)
-- Vector/semantic search (`embedding BLOB` column noted in `db.py`)
+- ~~Vector/semantic search~~ — **Done (2026-04-19).** `embedding BLOB` on `documents`, all-MiniLM-L6-v2, post-crawl pass in `cli.py`, `search_docs_semantic` MCP tool.
 - Multi-version crawling with version filter on `search_docs` (comment marks where to add it)

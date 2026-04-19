@@ -3,7 +3,7 @@ SQLite database layer.
 
 Schema
 ------
-documents     — one row per crawled page (content + metadata)
+documents     — one row per crawled page (content + metadata + embedding BLOB)
 documents_fts — FTS5 virtual table backed by `documents` (BM25 search)
 crawl_state   — per-URL crawl progress (used by crawler; not read by server)
 
@@ -13,6 +13,14 @@ sync automatically.  This means:
   - No text is duplicated in the Python layer
   - The index survives across server restarts (no rebuild on startup)
   - BM25 ranking and phrase search work out of the box via SQLite's porter stemmer
+
+Embeddings
+----------
+Each document row stores a 384-dimensional float32 embedding (all-MiniLM-L6-v2)
+as a BLOB in the `embedding` column.  Embeddings are generated at crawl time by
+the post-crawl pass in cli.py.  The `search_docs_semantic` function loads all
+embeddings into a NumPy matrix and computes cosine similarity in-process; this
+is fast enough for the current corpus size (~1 000 documents).
 
 Future extensibility
 --------------------
@@ -129,6 +137,15 @@ def init_db(conn: sqlite3.Connection) -> None:
         -- );
     """)
     conn.commit()
+
+    # Add embedding column if it doesn't exist yet (migration for existing DBs).
+    # SQLite ALTER TABLE ADD COLUMN is always safe: it adds a nullable column
+    # with no default, so existing rows get NULL — correct for incremental embedding.
+    try:
+        conn.execute("ALTER TABLE documents ADD COLUMN embedding BLOB")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # column already exists
 
 
 # ---------------------------------------------------------------------------
@@ -322,9 +339,111 @@ def get_index_info(conn: sqlite3.Connection) -> dict:
         "PRAGMA page_size"
     ).fetchone()[0]
 
+    embedded = conn.execute(
+        "SELECT COUNT(*) FROM documents WHERE embedding IS NOT NULL"
+    ).fetchone()[0]
+
     return {
         "total_pages": total,
+        "embedded_pages": embedded,
         "last_crawled_at": last_crawled,
         "sources": [dict(r) for r in sources],
         "db_size_bytes": db_size,
     }
+
+
+# ---------------------------------------------------------------------------
+# Embedding helpers (write path — called by cli.py post-crawl pass)
+# ---------------------------------------------------------------------------
+
+
+def update_embedding(
+    conn: sqlite3.Connection, doc_id: int, embedding_bytes: bytes
+) -> None:
+    """Store a serialised float32 embedding BLOB for a document row."""
+    conn.execute(
+        "UPDATE documents SET embedding = ? WHERE id = ?",
+        (embedding_bytes, doc_id),
+    )
+
+
+def get_documents_without_embeddings(
+    conn: sqlite3.Connection, source_id: str | None = None
+) -> list[sqlite3.Row]:
+    """
+    Return rows that have no embedding yet (or all rows if source_id is None).
+
+    Each row exposes: id, title, content_md.
+    Used by the post-crawl embedding pass in cli.py.
+    """
+    if source_id:
+        return conn.execute(
+            "SELECT id, title, content_md FROM documents "
+            "WHERE embedding IS NULL AND source = ?",
+            (source_id,),
+        ).fetchall()
+    return conn.execute(
+        "SELECT id, title, content_md FROM documents WHERE embedding IS NULL"
+    ).fetchall()
+
+
+# ---------------------------------------------------------------------------
+# Semantic search (read path — called by server.py)
+# ---------------------------------------------------------------------------
+
+
+def search_docs_semantic(
+    conn: sqlite3.Connection,
+    query_vec: "numpy.ndarray",  # noqa: F821 — numpy imported lazily below
+    source: str | None = None,
+    limit: int = 5,
+) -> list[dict]:
+    """
+    Cosine-similarity search using pre-computed document embeddings.
+
+    All embeddings are loaded into a NumPy matrix and the dot product with the
+    (unit-norm) query vector is computed in-process.  This is O(n) in corpus
+    size but fast enough for ~1 000 documents (sub-millisecond arithmetic).
+
+    Returns results sorted by descending similarity score (1.0 = identical).
+    Returns an empty list if no embeddings have been generated yet.
+    """
+    import numpy as np  # lazy import — only needed when this function is called
+
+    where = "WHERE embedding IS NOT NULL"
+    params: list = []
+    if source:
+        where += " AND source = ?"
+        params.append(source)
+
+    rows = conn.execute(
+        f"SELECT id, url, title, source, version, section, embedding "
+        f"FROM documents {where}",
+        params,
+    ).fetchall()
+
+    if not rows:
+        return []
+
+    # Stack embeddings into a (N, 384) float32 matrix
+    mat = np.stack(
+        [np.frombuffer(r["embedding"], dtype=np.float32) for r in rows]
+    )
+
+    # Dot product of unit-norm vectors == cosine similarity
+    scores = mat @ query_vec
+
+    top_idx = int(min(limit, len(rows)))
+    ranked = np.argsort(scores)[::-1][:top_idx]
+
+    return [
+        {
+            "url": rows[i]["url"],
+            "title": rows[i]["title"],
+            "source": rows[i]["source"],
+            "version": rows[i]["version"],
+            "section": rows[i]["section"],
+            "score": round(float(scores[i]), 4),
+        }
+        for i in ranked
+    ]
