@@ -7,6 +7,7 @@ Usage
   uv run splunk-crawl --sources enterprise-security     # single source
   uv run splunk-crawl --sources enterprise-security --section user-guide   # dev/test
   uv run splunk-crawl --full                            # re-extract everything
+  uv run splunk-crawl --rechunk                         # rebuild chunks only (no crawl)
   uv run splunk-crawl --help
 
 After each crawl the CLI runs a post-crawl embedding pass that generates a
@@ -79,6 +80,16 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
+        "--rechunk",
+        action="store_true",
+        default=False,
+        help=(
+            "Delete and rebuild all chunks for the specified sources using the "
+            "current chunking strategy, without re-crawling. "
+            "The embed pass runs automatically for the newly created chunks."
+        ),
+    )
+    p.add_argument(
         "--db",
         type=Path,
         default=DB_PATH,
@@ -103,6 +114,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
 async def _run(args: argparse.Namespace) -> int:
     sources: list[CrawlSource] = [SOURCES_BY_ID[sid] for sid in args.sources]
+
+    if args.rechunk:
+        # Skip crawl — only rebuild chunks and embed new chunk rows
+        print(f"\nRechunking {len(sources)} source(s): {', '.join(s.source_id for s in sources)}")
+        _chunk_pass(args, sources)
+        _embed_pass(args, sources)
+        return 0
 
     all_stats = []
     for source in sources:
@@ -146,7 +164,7 @@ def _chunk_pass(args: argparse.Namespace, sources: list[CrawlSource]) -> None:
     conn = db_module.get_connection(args.db)
     db_module.init_db(conn)
 
-    if args.full:
+    if args.full or args.rechunk:
         for source in sources:
             conn.execute(
                 "DELETE FROM documents WHERE chunk_of IN "
@@ -158,7 +176,8 @@ def _chunk_pass(args: argparse.Namespace, sources: list[CrawlSource]) -> None:
                 (source.source_id,),
             )
         conn.commit()
-        logger.info("Cleared existing chunks for re-chunking (--full).")
+        flag = "--full" if args.full else "--rechunk"
+        logger.info("Cleared existing chunks for re-chunking (%s).", flag)
 
     total = 0
     for source in sources:

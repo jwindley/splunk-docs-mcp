@@ -27,12 +27,12 @@ _Last updated: 2026-04-20 (Phase 3 planned)_
 
 ## 🟡 Priority 2 — Tier 2: Quality improvements (independent)
 
-### Item 8: Smart chunking + `--rechunk` flag
-- [ ] Add `_split_content_smart(text, chunk_size, overlap)` to `db.py` — strategy: heading boundaries (`\n## `, `\n### `) → paragraph boundaries (`\n\n`) → character fallback (existing `_split_content()`)
-- [ ] Cap heading-based sections at `chunk_size * 2`; recurse with paragraph split if exceeded
-- [ ] Update `chunk_document()` in `db.py` to call `_split_content_smart()` instead of `_split_content()`
-- [ ] Add `--rechunk` flag to `cli.py` argparse
-- [ ] Implement `--rechunk` branch in `_chunk_pass()`: delete all chunk rows and reset `has_chunks = 0` for specified sources, then re-chunk; followed by `_embed_pass()` for new chunks only
+### Item 8: Smart chunking + `--rechunk` flag ✅
+- [x] Add `_split_content_smart(text, chunk_size, overlap)` to `db.py` — strategy: heading boundaries (`\n## `, `\n### `) → paragraph boundaries (`\n\n`) → character fallback (existing `_split_content()`)
+- [x] Add `_accumulate_with_overlap()` helper; heading sections up to `chunk_size * 2` kept whole
+- [x] Update `chunk_document()` in `db.py` to call `_split_content_smart()` instead of `_split_content()`
+- [x] Add `--rechunk` flag to `cli.py` argparse
+- [x] `--rechunk` skips crawl, resets chunks, runs `_chunk_pass()` + `_embed_pass()` for new chunks only
 
 ### Item 2: Lantern sitemap discovery
 - [ ] Add `sitemap_url: str | None = None` field to `CrawlSource` dataclass in `config.py`

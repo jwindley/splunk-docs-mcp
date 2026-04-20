@@ -29,9 +29,14 @@ matching FTS5 table.  The rest of the codebase is unaffected.
 """
 
 import hashlib
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+
+# Heading and paragraph boundary patterns used by _split_content_smart
+_HEADING_RE = re.compile(r'(?m)^(?=#{2,3} )')
+_PARA_BREAK_RE = re.compile(r'\n{2,}')
 
 # Chunking constants
 CHUNK_THRESHOLD = 8_000   # characters; documents longer than this are split
@@ -264,6 +269,64 @@ def _split_content(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK
     return chunks
 
 
+def _accumulate_with_overlap(
+    units: list[str], chunk_size: int, overlap: int
+) -> list[str]:
+    """Greedily pack units into chunks up to chunk_size, carrying an overlap tail."""
+    chunks: list[str] = []
+    current = ""
+    for unit in units:
+        if not current:
+            current = unit
+        elif len(current) + 2 + len(unit) <= chunk_size:
+            current = current + "\n\n" + unit
+        else:
+            chunks.append(current)
+            tail = current[-overlap:] if len(current) > overlap else current
+            current = (tail + "\n\n" + unit) if tail else unit
+    if current.strip():
+        chunks.append(current)
+    return chunks
+
+
+def _split_content_smart(
+    text: str,
+    chunk_size: int = CHUNK_SIZE,
+    overlap: int = CHUNK_OVERLAP,
+) -> list[str]:
+    """
+    Split text into overlapping chunks using structural boundaries.
+
+    Strategy (in priority order):
+      1. ## / ### heading boundaries — keeps config stanzas and table sections intact
+      2. Paragraph breaks — applied to heading-sections that exceed chunk_size * 2
+      3. Character-based fallback — for content with no structural markers
+
+    Heading sections up to chunk_size * 2 chars are kept whole so that config
+    key descriptions stay grouped with their stanza heading.
+    """
+    segments = [s for s in _HEADING_RE.split(text) if s.strip()]
+    if not segments:
+        return _split_content(text, chunk_size, overlap)
+
+    # Pack heading-sections into chunks up to chunk_size
+    base_chunks = _accumulate_with_overlap(segments, chunk_size, overlap)
+
+    # Second pass: paragraph-split any chunk still larger than chunk_size * 2
+    result: list[str] = []
+    for chunk in base_chunks:
+        if len(chunk) <= chunk_size * 2:
+            result.append(chunk)
+            continue
+        paras = [p for p in _PARA_BREAK_RE.split(chunk) if p.strip()]
+        if len(paras) > 1:
+            result.extend(_accumulate_with_overlap(paras, chunk_size, overlap))
+        else:
+            result.extend(_split_content(chunk, chunk_size, overlap))
+
+    return result or _split_content(text, chunk_size, overlap)
+
+
 def get_documents_needing_chunking(
     conn: sqlite3.Connection,
     threshold: int = CHUNK_THRESHOLD,
@@ -305,7 +368,7 @@ def chunk_document(
     Deletes any existing stale chunks before inserting new ones (idempotent).
     Returns the number of chunks created.
     """
-    chunks = _split_content(parent["content_md"], chunk_size, overlap)
+    chunks = _split_content_smart(parent["content_md"], chunk_size, overlap)
     n = len(chunks)
 
     # Remove stale chunks from a previous pass
