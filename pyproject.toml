@@ -21,6 +21,7 @@ dependencies = [
 [project.scripts]
 splunk-mcp   = "splunk_docs_mcp.server:run"
 splunk-crawl = "splunk_docs_mcp.cli:main"
+splunk-setup = "splunk_docs_mcp.setup:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/splunk_docs_mcp"]
