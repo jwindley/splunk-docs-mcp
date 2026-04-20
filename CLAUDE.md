@@ -8,36 +8,37 @@
 
 ## Project Overview
 
-A local Python MCP server that crawls Splunk documentation from `help.splunk.com`, stores pages as Markdown files, indexes them in SQLite FTS5, and exposes search and retrieval via MCP tools.
+A local Python MCP server that crawls Splunk documentation from `help.splunk.com` and `lantern.splunk.com`, stores pages as Markdown files, indexes them in SQLite FTS5, and exposes search and retrieval via MCP tools.
 
 The primary use case is giving Claude (via MCP) accurate, version-specific Splunk knowledge without hallucination — answering questions like "how do I configure correlation searches in ES 8.5?" or "what fields does transforms.conf support?"
 
 ---
 
-## Phase 1 Scope (what we are building)
+## Active Crawl Sources
 
-| Source ID | Display Name | Version | Base URL |
-|-----------|-------------|---------|----------|
-| `enterprise-security` | Splunk Enterprise Security 8.5 | 8.5 | `help.splunk.com/en/splunk-enterprise-security-8/` |
-| `admin-manual` | Splunk Configuration File Reference 10.2 | 10.2 | `help.splunk.com/en/data-management/splunk-enterprise-admin-manual/10.2/configuration-file-reference/` |
+| Source ID | Display Name | Version | Base URL | Pages |
+|-----------|-------------|---------|----------|-------|
+| `enterprise-security` | Splunk Enterprise Security 8.5 | 8.5 | `help.splunk.com/en/splunk-enterprise-security-8/` | 1,275 |
+| `admin-manual` | Splunk Configuration File Reference 10.2 | 10.2 | `help.splunk.com/en/data-management/splunk-enterprise-admin-manual/10.2/configuration-file-reference/` | 216 |
+| `splunk-enterprise` | Splunk Enterprise 10.2 | 10.2 | `help.splunk.com/en/splunk-enterprise/` | 3,513 |
+| `splunk-cloud` | Splunk Cloud Platform 10.3.2512 | 10.3.2512 | `help.splunk.com/en/splunk-cloud-platform/` | 2,658 |
+| `lantern` | Splunk Lantern | current | `lantern.splunk.com/` | 1,284 |
 
 ---
 
-## Intended Distribution Model (Phase 2 — do NOT build during Phase 1 POC)
+## Distribution Model (Phase 2 — planned, not started)
 
-The goal is a public GitHub repo where users never run the crawl. When Phase 1 POC is done:
+The goal is a public GitHub repo where users never run the crawl:
 
 - **GitHub Actions** crawls weekly + on `workflow_dispatch`, publishes `splunk_docs.db` as a GitHub Release asset (`data-YYYY-MM-DD` tag)
 - **`splunk-setup` CLI command** (`src/splunk_docs_mcp/setup.py`) downloads the latest Release asset to `data/splunk_docs.db`
 - User flow becomes: `git clone` → `uv sync` → `uv run splunk-setup` → configure MCP → done
 - See PLAN.md "Phase 2" for full implementation details
 
-## Future Scope (architecture must accommodate; do NOT build yet)
+## Future Scope (do NOT build yet)
 
-- **Lantern** — `lantern.splunk.com` (new `CrawlSource` entry only)
-- **Core Splunk Enterprise docs** — help.splunk.com (new `CrawlSource` entry only)
 - **SPL examples library** — curated JSON → separate `spl_examples` DB table + `search_spl` MCP tool (stub already in `db.py`)
-- **Multi-version crawling** — `version` column already in schema; `search_docs` has a comment marking where to add a `version` filter parameter
+- **Multi-version crawling** — `version` column already in schema; `search_docs` has a `# Future: add version filter here` comment marking where to add a filter parameter
 
 ---
 
@@ -74,7 +75,7 @@ splunk-docs-mcp/
 ├── src/
 │   └── splunk_docs_mcp/
 │       ├── __init__.py
-│       ├── config.py      ← CrawlSource dataclass + Phase 1 source definitions
+│       ├── config.py      ← CrawlSource dataclass + all active source definitions (5 sources)
 │       ├── db.py          ← SQLite schema, connection factory, upsert/query helpers
 │       ├── extractor.py   ← HTML→Markdown + URL metadata parsing
 │       ├── crawler.py     ← async BFS crawler
@@ -90,11 +91,12 @@ splunk-docs-mcp/
 ## Entry Points
 
 ```bash
-uv run splunk-mcp                                                # start MCP server (stdio)
-uv run splunk-crawl                                             # crawl all Phase 1 sources + embed
-uv run splunk-crawl --sources enterprise-security               # single source
-uv run splunk-crawl --sources enterprise-security --section user-guide  # single section (dev/test)
-uv run splunk-crawl --full                                      # re-extract + re-embed everything
+uv run splunk-mcp                                                           # start MCP server (stdio)
+uv run splunk-crawl                                                         # crawl all sources + embed
+uv run splunk-crawl --sources enterprise-security                           # single source
+uv run splunk-crawl --sources enterprise-security --section user-guide      # single section (dev/test)
+uv run splunk-crawl --sources lantern --section Splunk_Success_Framework    # Lantern test section
+uv run splunk-crawl --full                                                  # re-extract + re-chunk + re-embed everything
 ```
 
 ---
@@ -102,9 +104,14 @@ uv run splunk-crawl --full                                      # re-extract + r
 ## Key Architectural Decisions
 
 ### Source-agnostic design
-Everything downstream of `config.py` is source-agnostic. Adding a new crawl source (Lantern, core Splunk) requires only:
+Everything downstream of `config.py` is source-agnostic. Adding a new crawl source requires only:
 1. Add a `CrawlSource` entry to `PHASE1_SOURCES` in `config.py`
 2. Zero other changes
+
+`CrawlSource` fields relevant when adding a new source:
+- `crawl_delay` — set to match `robots.txt` `Crawl-delay` (default 0.5 s)
+- `max_concurrency` — set to 1 for sources with a `Request-rate: 1/N` constraint (e.g. Lantern)
+- `blocked_path_prefixes` — full URL prefixes matching `robots.txt` `Disallow` rules; replaces the old hardcoded `_BLOCKED_PREFIXES` in `crawler.py`
 
 ### `source` + `version` columns on every row
 Every document row in the DB stores its source ID and product version. Search results always include this metadata so it is always clear which version of which product a result is from.
@@ -118,15 +125,24 @@ DB connection opened once on first use, reused across all tool calls. Simpler an
 ### BM25 title weighting
 `bm25(documents_fts, 10.0, 1.0)` weights title matches 10× higher than body matches. Lower score = better match (SQLite BM25 convention).
 
-### Vector search — whole-document embeddings, in-process cosine similarity
-Each document is embedded as a single vector (title + full content_md, truncated to 256 tokens by the model). Embeddings are 384-dim float32 BLOBs stored on `documents.embedding`. At query time all embeddings are loaded into a NumPy matrix and the dot product is computed in-process — O(n) but fast enough for ~1 000 documents (sub-ms arithmetic). No separate vector DB or extension needed. Model is **eagerly loaded at server startup** (`SentenceTransformer` instantiated at module level in `server.py`) so the first `search_docs_semantic` call has no model-load penalty.
+### Document chunking — large pages split for precise FTS and embedding retrieval
+Documents over **8,000 characters** are split into overlapping **1,500-character chunks** (200-char overlap) by a post-crawl `_chunk_pass()` in `cli.py`. Each chunk is stored as a separate `documents` row with `chunk_of = parent_url` and `chunk_index`. The parent row is marked `has_chunks = 1` and excluded from FTS/embedding search; `get_page(url)` reassembles chunks transparently. If `get_page` receives a chunk URL it redirects to the parent automatically.
+
+Chunking constants (`CHUNK_THRESHOLD = 8000`, `CHUNK_SIZE = 1500`, `CHUNK_OVERLAP = 200`) live at the top of `db.py`. Chunk pass runs before the embed pass so chunk rows get embeddings instead of the parent.
+
+### Vector search — chunk-level embeddings, in-process cosine similarity
+Short documents (≤ 8,000 chars) are embedded whole; long documents are embedded per chunk (parent rows skipped). Embeddings are 384-dim float32 BLOBs stored on `documents.embedding`. At query time all non-parent embeddings load into a NumPy matrix; dot product computed in-process. Results deduplicated by canonical (parent) URL — highest-scoring chunk per document wins. Model is **eagerly loaded at server startup** (`SentenceTransformer` instantiated at module level in `server.py`) so the first `search_docs_semantic` call has no model-load penalty.
 
 ---
 
 ## Database Schema Summary
 
 ```sql
-documents          -- one row per page; url UNIQUE
+documents          -- one row per page or chunk; url UNIQUE
+                   --   has_chunks INTEGER DEFAULT 0  (1 = split into chunks; exclude from search)
+                   --   chunk_of   TEXT               (NULL = not a chunk; parent URL for chunk rows)
+                   --   chunk_index INTEGER            (0-based position within parent)
+                   --   embedding  BLOB               (384-dim float32; NULL for has_chunks=1 parents)
 documents_fts      -- FTS5 virtual table (content=documents); auto-synced via triggers
 crawl_state        -- per-URL crawl status; used by crawler only, not MCP server
 ```
@@ -182,6 +198,13 @@ The URL prefix `splunk-enterprise-security-8/` matches all versions (8.0, 8.1, 8
 
 ### When to use `--full`
 `crawl_state` records every attempted URL. If a crawl run contained bugs (e.g. malformed URLs were visited and recorded as fetched/failed), a subsequent incremental crawl will skip those URLs. Always use `uv run splunk-crawl --full` after fixing crawler URL-handling bugs to force a clean re-crawl.
+
+### Lantern URL structure differences from help.splunk.com
+- **No version numbers in paths** — `version="current"` and the version-segment filter in `_is_target_url` never triggers (no numeric segments present), so no false rejections.
+- **PascalCase_with_underscores** path segments (e.g. `Security_Use_Cases`) instead of kebab-case.
+- **Up to 4 path levels** — `/{Section}/{Subsection}/{Group}/{Article}`. `parse_url_metadata` maps level 1 → `section`, level 2 → `subsection`, last segment → `slug`; the intermediate level 3 group (e.g. `Optimizing_storage`) is not stored as metadata but is preserved in the URL itself.
+- **robots.txt constraints** — `Crawl-delay: 5`, `Request-rate: 1/5`. Handled by `crawl_delay=5.0, max_concurrency=1` on the `CrawlSource`; the crawler applies these automatically without any CLI flags needed.
+- **Blocked paths** — `/Special:*`, `/Template:*`, `/User:*`, `/deki/`, `/@*` per `robots.txt`. Stored in `blocked_path_prefixes` on the source; `_normalise_url()` strips query strings so `?action=` and `?title=Special:` variants are already neutralised before the prefix check.
 
 ---
 

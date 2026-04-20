@@ -88,9 +88,19 @@ def _get_db() -> sqlite3.Connection:
 mcp = FastMCP(
     name="splunk-docs",
     instructions=(
-        "Splunk documentation index. Sources: Splunk Enterprise Security 8.5 "
-        "(source='enterprise-security') and Splunk Configuration File Reference 10.2 "
-        "(source='admin-manual').\n\n"
+        "ALWAYS consult this server before answering any Splunk-related question. "
+        "Never answer from training data alone — training data is outdated and error-prone "
+        "for Splunk specifics. If the user asks anything about Splunk configuration, "
+        "administration, search, dashboards, alerts, data ingestion, Enterprise Security, "
+        "SOAR, Observability, or any other Splunk product or feature, use the tools below "
+        "to retrieve the current documentation first, then answer from that.\n\n"
+
+        "Available sources (use the source= parameter to target a specific one):\n"
+        "  enterprise-security  — Splunk Enterprise Security 8.5\n"
+        "  admin-manual         — Splunk Configuration File Reference 10.2\n"
+        "  splunk-enterprise    — Splunk Enterprise 10.2\n"
+        "  splunk-cloud         — Splunk Cloud Platform 10.3.2512\n"
+        "  lantern              — Splunk Lantern (use-case guidance, best practices)\n\n"
 
         "DECISION TREE — apply before every question:\n\n"
 
@@ -127,6 +137,16 @@ mcp = FastMCP(
         "  • 3 get_page calls (unless the user explicitly requests a full survey)\n"
         "  • 0 get_index_info calls (only call if the user asks about index status)\n\n"
 
+        "CONFIDENCE AND UNCERTAINTY — mandatory:\n"
+        "  • If retrieved pages do not directly address the question, say so explicitly "
+        "before attempting to synthesise an answer from partial information.\n"
+        "  • If you are uncertain whether the retrieved content is correct or complete "
+        "for the user's specific version or configuration, state that uncertainty.\n"
+        "  • Never present a synthesised answer as if it came from authoritative docs "
+        "when the retrieved content only partially matches the question.\n"
+        "  • Prefer 'The documentation does not cover this directly' over a confident "
+        "answer inferred from loosely related content.\n\n"
+
         "TOOL SELECTION GUIDE:\n"
         "  search_docs          — exact config key (inputs.conf), quoted phrase "
         "(\"notable event\"), specific setting name\n"
@@ -159,7 +179,8 @@ def search_docs(
         str | None,
         Field(description=(
             "Limit search to a specific source. "
-            "Options: 'enterprise-security', 'admin-manual'. "
+            "Options: 'enterprise-security', 'admin-manual', 'splunk-enterprise', "
+            "'splunk-cloud', 'lantern'. "
             "Omit to search across all indexed sources."
         )),
     ] = None,
@@ -176,6 +197,12 @@ def search_docs(
     Returns ranked results with title, URL, source, version, section, and a
     ~30-token snippet showing where the query terms appear in the content.
     Lower score values indicate better matches (SQLite BM25 convention).
+
+    Large documents are indexed as overlapping chunks so results may point to
+    a specific section of a page; get_page() always returns the full document.
+
+    If the returned snippets do not directly address the question, state that
+    explicitly rather than synthesising an answer from partially relevant content.
     """
     t0 = time.perf_counter()
     try:
@@ -209,7 +236,8 @@ def search_docs_semantic(
         str | None,
         Field(description=(
             "Limit search to a specific source. "
-            "Options: 'enterprise-security', 'admin-manual'. "
+            "Options: 'enterprise-security', 'admin-manual', 'splunk-enterprise', "
+            "'splunk-cloud', 'lantern'. "
             "Omit to search across all indexed sources."
         )),
     ] = None,
@@ -226,8 +254,14 @@ def search_docs_semantic(
     questions, 'how do I…' queries, or natural-language descriptions of a feature.
 
     Embeddings are generated at crawl time (all-MiniLM-L6-v2, 384 dims).
+    Large documents are embedded as overlapping chunks for finer-grained retrieval.
     Returns results ranked by cosine similarity score (1.0 = most similar).
     Returns a message if no embeddings exist — run 'uv run splunk-crawl' first.
+
+    Cosine similarity scores do not indicate factual relevance — a high score means
+    the document is topically similar, not that it answers the question directly.
+    If the retrieved pages do not address the question, say so rather than
+    synthesising an answer from loosely related content.
     """
     t0 = time.perf_counter()
     try:
@@ -292,7 +326,8 @@ def list_sections(
     source: Annotated[
         str | None,
         Field(description=(
-            "Filter by source: 'enterprise-security' or 'admin-manual'. "
+            "Filter by source: 'enterprise-security', 'admin-manual', "
+            "'splunk-enterprise', 'splunk-cloud', or 'lantern'. "
             "Omit to list sections for all sources."
         )),
     ] = None,
@@ -333,7 +368,8 @@ def browse_section(
     source: Annotated[
         str,
         Field(description=(
-            "Source the section belongs to: 'enterprise-security' or 'admin-manual'."
+            "Source the section belongs to: 'enterprise-security', 'admin-manual', "
+            "'splunk-enterprise', 'splunk-cloud', or 'lantern'."
         )),
     ],
     subsection: Annotated[

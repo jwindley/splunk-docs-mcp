@@ -49,9 +49,10 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="SECTION",
         default=None,
         help=(
-            "Only crawl pages in this section (e.g. 'user-guide'). "
-            "Useful for fast development testing without a full crawl. "
-            "Only meaningful for the 'enterprise-security' source."
+            "Only crawl pages in this section. "
+            "For enterprise-security use e.g. 'user-guide'; "
+            "for lantern use e.g. 'Splunk_Success_Framework'. "
+            "Useful for fast development testing without a full crawl."
         ),
     )
     p.add_argument(
@@ -120,11 +121,57 @@ async def _run(args: argparse.Namespace) -> int:
     for s in all_stats:
         print(f"  {s.summary()}")
 
-    # Post-crawl: generate sentence embeddings for any docs that don't have one
+    # Post-crawl pass order: chunk first, then embed (so chunk rows get embeddings)
+    _chunk_pass(args, sources)
     _embed_pass(args, sources)
 
     total_failures = sum(s.failed for s in all_stats)
     return 1 if total_failures > 0 else 0
+
+
+def _chunk_pass(args: argparse.Namespace, sources: list[CrawlSource]) -> None:
+    """
+    Split documents over CHUNK_THRESHOLD characters into overlapping chunk rows.
+
+    Chunk rows get their own FTS5 entries and embeddings so search finds the
+    relevant section rather than scoring the whole document.  The parent row
+    is marked has_chunks=1 and excluded from search; get_page() reassembles
+    chunks transparently when called with the original URL.
+
+    With --full, all existing chunks for the crawled sources are deleted and
+    rebuilt from scratch.
+    """
+    logger = logging.getLogger(__name__)
+
+    conn = db_module.get_connection(args.db)
+    db_module.init_db(conn)
+
+    if args.full:
+        for source in sources:
+            conn.execute(
+                "DELETE FROM documents WHERE chunk_of IN "
+                "(SELECT url FROM documents WHERE source = ?)",
+                (source.source_id,),
+            )
+            conn.execute(
+                "UPDATE documents SET has_chunks = 0 WHERE source = ?",
+                (source.source_id,),
+            )
+        conn.commit()
+        logger.info("Cleared existing chunks for re-chunking (--full).")
+
+    total = 0
+    for source in sources:
+        docs = db_module.get_documents_needing_chunking(conn, source_id=source.source_id)
+        for doc in docs:
+            n = db_module.chunk_document(conn, dict(doc))
+            total += 1
+            logger.debug("Chunked %s into %d parts.", doc["url"], n)
+
+    if total:
+        logger.info("Chunk pass complete — %d documents split into chunks.", total)
+    else:
+        logger.info("No documents needed chunking.")
 
 
 def _embed_pass(args: argparse.Namespace, sources: list[CrawlSource]) -> None:

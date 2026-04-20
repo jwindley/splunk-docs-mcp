@@ -61,6 +61,18 @@ class CrawlSource:
     url_prefix: str
     """Only follow links whose full URL starts with this string."""
 
+    crawl_delay: float = 0.5
+    """Minimum seconds to wait between requests. Overrides the CLI --delay floor
+    when higher. Honour robots.txt Crawl-delay here."""
+
+    max_concurrency: int | None = None
+    """Cap on concurrent workers for this source. None = use CLI --concurrency as-is.
+    Set to 1 for sources with a strict Request-rate (e.g. lantern.splunk.com)."""
+
+    blocked_path_prefixes: list[str] = field(default_factory=list)
+    """Full URL prefixes that must never be crawled (robots.txt Disallow rules,
+    internal API paths, etc.). Checked in addition to url_prefix filtering."""
+
 
 # ---------------------------------------------------------------------------
 # Phase 1 sources
@@ -110,6 +122,24 @@ _CLOUD_SECTIONS = [
     "connect-relational-databases",
 ]
 
+# Paths that robots.txt blocks on help.splunk.com — carried on each source so
+# the crawler stays source-agnostic (no hardcoded hostnames in crawler.py).
+_HELP_BLOCKED = [
+    "https://help.splunk.com/api/",
+    "https://help.splunk.com/bundle/",
+]
+
+# Paths blocked by lantern.splunk.com robots.txt Disallow rules.
+# Query-string variants (?action=, ?title=Special:…) are already neutralised by
+# _normalise_url() which strips the query string before any URL is evaluated.
+_LANTERN_BLOCKED = [
+    "https://lantern.splunk.com/Special:",
+    "https://lantern.splunk.com/Template:",
+    "https://lantern.splunk.com/User:",
+    "https://lantern.splunk.com/deki/",
+    "https://lantern.splunk.com/@",
+]
+
 PHASE1_SOURCES: list[CrawlSource] = [
     CrawlSource(
         source_id="enterprise-security",
@@ -126,6 +156,7 @@ PHASE1_SOURCES: list[CrawlSource] = [
             ],
         ],
         url_prefix="https://help.splunk.com/en/splunk-enterprise-security-8/",
+        blocked_path_prefixes=_HELP_BLOCKED,
     ),
     CrawlSource(
         source_id="admin-manual",
@@ -142,6 +173,7 @@ PHASE1_SOURCES: list[CrawlSource] = [
             "https://help.splunk.com/en/data-management/splunk-enterprise-admin-manual"
             "/10.2/configuration-file-reference/"
         ),
+        blocked_path_prefixes=_HELP_BLOCKED,
     ),
     CrawlSource(
         source_id="splunk-enterprise",
@@ -158,6 +190,7 @@ PHASE1_SOURCES: list[CrawlSource] = [
             ],
         ],
         url_prefix="https://help.splunk.com/en/splunk-enterprise/",
+        blocked_path_prefixes=_HELP_BLOCKED,
     ),
     CrawlSource(
         source_id="splunk-cloud",
@@ -173,16 +206,34 @@ PHASE1_SOURCES: list[CrawlSource] = [
             ],
         ],
         url_prefix="https://help.splunk.com/en/splunk-cloud-platform/",
+        blocked_path_prefixes=_HELP_BLOCKED,
     ),
-    # Future sources (not yet active):
-    #
-    # CrawlSource(
-    #     source_id="lantern",
-    #     display_name="Splunk Lantern",
-    #     version="current",
-    #     seed_urls=["https://lantern.splunk.com/"],
-    #     url_prefix="https://lantern.splunk.com/",
-    # ),
+    CrawlSource(
+        source_id="lantern",
+        display_name="Splunk Lantern",
+        version="current",
+        seed_urls=[
+            # Root — discovers all top-level section links
+            "https://lantern.splunk.com/",
+            # Explicit section seeds as belt-and-braces
+            "https://lantern.splunk.com/Security_Use_Cases",
+            "https://lantern.splunk.com/Observability_Use_Cases",
+            "https://lantern.splunk.com/Splunk_and_Cisco_Use_Cases",
+            "https://lantern.splunk.com/Industry_Use_Cases",
+            "https://lantern.splunk.com/Get_Started_with_Splunk_Software",
+            "https://lantern.splunk.com/Splunk_Success_Framework",
+            "https://lantern.splunk.com/Splunk_Cloud_Platform_Migration",
+            "https://lantern.splunk.com/Manage_Performance_and_Health",
+            "https://lantern.splunk.com/Platform_Data_Management",
+            "https://lantern.splunk.com/Data_Sources",
+            "https://lantern.splunk.com/Data_Types",
+        ],
+        url_prefix="https://lantern.splunk.com/",
+        # robots.txt: Crawl-delay: 5, Request-rate: 1/5
+        crawl_delay=5.0,
+        max_concurrency=1,
+        blocked_path_prefixes=_LANTERN_BLOCKED,
+    ),
 ]
 
 SOURCES_BY_ID: dict[str, CrawlSource] = {s.source_id: s for s in PHASE1_SOURCES}
