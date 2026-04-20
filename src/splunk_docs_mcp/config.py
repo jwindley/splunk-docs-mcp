@@ -73,6 +73,12 @@ class CrawlSource:
     """Full URL prefixes that must never be crawled (robots.txt Disallow rules,
     internal API paths, etc.). Checked in addition to url_prefix filtering."""
 
+    sitemap_url: str | None = None
+    """Optional sitemap.xml URL. When set, the crawler pre-seeds the BFS queue
+    from the sitemap and uses <lastmod> dates to skip unchanged pages on --full
+    runs. BFS link discovery still runs as fallback for pages missing from the
+    sitemap."""
+
 
 # ---------------------------------------------------------------------------
 # Phase 1 sources
@@ -233,6 +239,8 @@ PHASE1_SOURCES: list[CrawlSource] = [
         crawl_delay=5.0,
         max_concurrency=1,
         blocked_path_prefixes=_LANTERN_BLOCKED,
+        # Sitemap covers ~800/1,284 pages; BFS discovers the remaining ~484.
+        sitemap_url="https://lantern.splunk.com/sitemap.xml",
     ),
 ]
 

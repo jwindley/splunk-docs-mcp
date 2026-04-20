@@ -34,12 +34,12 @@ _Last updated: 2026-04-20 (Phase 3 planned)_
 - [x] Add `--rechunk` flag to `cli.py` argparse
 - [x] `--rechunk` skips crawl, resets chunks, runs `_chunk_pass()` + `_embed_pass()` for new chunks only
 
-### Item 2: Lantern sitemap discovery
-- [ ] Add `sitemap_url: str | None = None` field to `CrawlSource` dataclass in `config.py`
-- [ ] Set `sitemap_url = "https://lantern.splunk.com/sitemap.xml"` on the Lantern source
-- [ ] Add `_fetch_sitemap_urls(source) -> list[tuple[str, str | None]]` async function to `crawler.py` — returns list of `(url, lastmod_date_str | None)`; filters through `_is_target_url()` and `_normalise_url()`
-- [ ] In `crawl_source()`, if `source.sitemap_url` is set: fetch sitemap, compare each URL's `<lastmod>` against `crawl_state.attempted_at`; skip URLs where page is unchanged; seed BFS queue with remaining URLs
-- [ ] BFS fallback still runs — sitemap is incomplete (~800/1,284 Lantern pages); BFS discovers the rest
+### Item 2: Lantern sitemap discovery ✅
+- [x] Add `sitemap_url: str | None = None` field to `CrawlSource` dataclass in `config.py`
+- [x] Set `sitemap_url = "https://lantern.splunk.com/sitemap.xml"` on the Lantern source
+- [x] Add `_fetch_sitemap_urls(source, section_filter)` async function to `crawler.py`; handles sitemap XML namespace; filters via `_normalise_url()` + `_is_target_url()`
+- [x] Sitemap seeding runs at start of `crawl_source()` before BFS seed URLs; `--full` mode uses `get_crawl_timestamps()` to compare `<lastmod>[:10]` against `attempted_at[:10]` and skip unchanged pages without fetching
+- [x] BFS fallback intact — discovers remaining ~484 pages not in sitemap
 
 ---
 

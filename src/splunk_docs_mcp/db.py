@@ -251,6 +251,18 @@ def get_visited_urls(conn: sqlite3.Connection, source_id: str) -> set[str]:
     return {row["url"] for row in rows}
 
 
+def get_crawl_timestamps(conn: sqlite3.Connection, source_id: str) -> dict[str, str]:
+    """Return {url: attempted_at} for all crawled URLs of a given source.
+
+    Used by sitemap-based discovery to compare <lastmod> dates against the
+    last crawl timestamp and skip pages that have not changed.
+    """
+    rows = conn.execute(
+        "SELECT url, attempted_at FROM crawl_state WHERE source = ?", (source_id,)
+    ).fetchall()
+    return {row["url"]: row["attempted_at"] for row in rows}
+
+
 # ---------------------------------------------------------------------------
 # Chunking helpers (write path — called by cli.py chunk pass)
 # ---------------------------------------------------------------------------
