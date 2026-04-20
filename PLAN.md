@@ -106,44 +106,39 @@ Documents over 8,000 characters are now split into 1,500-character overlapping c
 
 ## Next Steps
 
-- See `TODO.md` Priority 3 (nice-to-haves) and Priority 4 (future/optional) for remaining work.
-- Phase 3+ items: SPL examples library, multi-version crawling, cross-version embedding reuse, cross-source deduplication investigation.
+See `TODO.md` Phase 3 for the full prioritised work queue.
 
 ---
 
-## Phase 2 — Public release distribution (planned, not started)
+## Phase 2 — Public release distribution ✅ Complete (2026-04-20)
 
-The end goal is a public GitHub repo where users never have to run the crawl. Planned approach:
-
-### Distribution model
-- **GitHub Actions** crawls on a weekly cron schedule + `workflow_dispatch` (manual trigger)
-- Publishes `splunk_docs.db` as a GitHub Release asset tagged `data-YYYY-MM-DD`
-- `make_latest: true` so `/releases/latest` always points at the freshest index
-- Uses `softprops/action-gh-release@v2` + auto-provided `GITHUB_TOKEN` (no extra secrets)
-- Requires `permissions: contents: write` on the job
-
-### New CLI command: `splunk-setup`
-- New file: `src/splunk_docs_mcp/setup.py`; entry point `splunk_docs_mcp.setup:main`
-- Calls GitHub API `/releases/latest`, finds `splunk_docs.db` asset, streams download with progress
-- Atomic write: download to `DB_PATH.parent / (DB_PATH.name + ".tmp")`, then rename
-- Imports `DB_PATH`, `DATA_DIR` from `config.py`; uses `httpx` (already a dependency)
-- No new dependencies
-
-### pyproject.toml change
-```toml
-splunk-setup = "splunk_docs_mcp.setup:main"
-```
-
-### README update
-Replace "run splunk-crawl" with "run splunk-setup"; add data freshness note.
-
-### User experience (post-Phase-2)
-`git clone` → `uv sync` → `uv run splunk-setup` → add MCP config → done.
+- GitHub Actions weekly cron + `workflow_dispatch` publishes `splunk_docs.db` as a release asset
+- `splunk-setup` CLI downloads the latest release asset; atomic write; progress bar
+- User flow: `git clone` → `uv sync` → `uv run splunk-setup` → configure MCP → done
 
 ---
 
-## Future / Phase 3+
+## Phase 3 — Improvements (planned 2026-04-20)
 
-- **SPL examples library** — curated JSON → separate `spl_examples` DB table + `search_spl` MCP tool (schema stub already in `db.py`)
-- **Multi-version crawling** — `version` column already in schema; `search_docs` has a `# Future: add version filter here` comment marking where to add a filter parameter
-- **Cross-version embedding reuse** — when a new version shares pages with the old, copy embeddings by `content_hash` instead of re-encoding (only worth building once multi-version crawling is active)
+Ten improvements across four tiers. See `TODO.md` for subtask breakdown.
+
+### Tier 1 — Foundational (no dependencies)
+- **Item 10**: Add `crawled_at` date to `search_docs` and `search_docs_semantic` result dicts (`db.py`)
+- **Item 4**: Exponential backoff retry (3 attempts, 2/4/8 s) in `_process_url()` (`crawler.py`)
+- **Item 3**: Module-level embedding matrix cache in `server.py` loaded once at startup; source pre-filter via numpy boolean indexing. **Note**: restart MCP server after `splunk-crawl` to refresh semantic search index.
+
+### Tier 2 — Quality (independent)
+- **Item 8**: Smart chunking — heading → paragraph → character fallback in `_split_content_smart()`; `--rechunk` CLI flag (`db.py`, `cli.py`)
+- **Item 2**: Lantern sitemap seeding — `sitemap_url` field on `CrawlSource`; `<lastmod>` pre-fetch skip; BFS fallback for sitemap-missing pages. Sitemap confirmed at `lantern.splunk.com/sitemap.xml` (~800 URLs, `<lastmod>` on all entries; sitemap is incomplete — BFS fallback covers remaining ~484 pages).
+
+### Tier 3 — Scalability (item 6 before item 7; item 1 before item 7)
+- **Item 6**: Embedding reuse via `content_hash` — index on `content_hash`; copy embedding from existing row with same hash before encoding (`db.py`, `cli.py`)
+- **Item 1**: GHA matrix parallelisation — one job per source; aggregation job merges per-source DBs via `merge_dbs()` + FTS5 rebuild + chunk/embed passes; new `src/splunk_docs_mcp/merge.py` with `splunk-merge` CLI; per-source DB caching across runs
+- **Item 7**: Multi-version crawling — add ES 8.3/8.4, Enterprise 10.1, Cloud 10.2 to `config.py`; add `version` filter parameter to `search_docs` at `# Future` comment in `db.py`
+
+### Tier 4 — Polish (requires items 1 and 7)
+- **Item 5**: Cross-source deduplication — `is_duplicate INTEGER DEFAULT 0` column; `_dedup_pass()` in `cli.py`; suppress duplicate URLs from FTS and semantic search (`db.py`)
+- **Item 9**: `splunk-setup` version selection UI — `manifest.json` schema; interactive CLI menu or `--all` flag; per-source DB download + merge; `--export-sources` flag on `splunk-merge` (not a separate entry point); backward-compat fallback to monolithic DB
+
+### Future / Phase 4+
+- **SPL examples library** — `spl_examples` table + `search_spl` MCP tool (schema stub already in `db.py`)
