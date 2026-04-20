@@ -385,6 +385,7 @@ def search_docs(
             d.version,
             d.section,
             d.subsection,
+            d.crawled_at,
             d.chunk_of,
             snippet(documents_fts, 1, '**', '**', '…', 32) AS snippet,
             bm25(documents_fts, 10.0, 1.0) AS score
@@ -408,6 +409,7 @@ def search_docs(
         chunk_of = d.pop("chunk_of")
         canonical = chunk_of if chunk_of else d["url"]
         d["url"] = canonical
+        d["crawled"] = (d.pop("crawled_at") or "")[:10]
         if canonical not in seen:
             seen[canonical] = d
 
@@ -605,7 +607,7 @@ def search_docs_semantic(
         params.append(source)
 
     rows = conn.execute(
-        f"SELECT id, url, title, source, version, section, chunk_of, embedding "
+        f"SELECT id, url, title, source, version, section, crawled_at, chunk_of, embedding "
         f"FROM documents {where}",
         params,
     ).fetchall()
@@ -638,6 +640,7 @@ def search_docs_semantic(
                 "version": rows[i]["version"],
                 "section": rows[i]["section"],
                 "score": round(float(scores[i]), 4),
+                "crawled": (rows[i]["crawled_at"] or "")[:10],
             }
 
     return list(seen.values())
