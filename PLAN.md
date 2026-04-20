@@ -1,16 +1,12 @@
 # Build Plan — splunk-docs-mcp
 
-_Last updated: 2026-04-20_
+_Last updated: 2026-04-20 (Phase 2 complete)_
 
 ---
 
 ## Current Status
 
-**All code is complete and working.** The MCP server runs, all 6 tools are registered and tested, and initial crawls for `enterprise-security`, `admin-manual`, and a Lantern test section are in the DB. The `splunk-enterprise` and `splunk-cloud` sources are defined in `config.py` but have not been crawled yet. A full Lantern crawl has not been run yet.
-
-**Outstanding before full production use:**
-- Run full crawl for `lantern` (~650 pages, ~1 hr at 5 s/request) — **in progress as of 2026-04-20**
-- Phase 2 (public distribution via GitHub Releases) not started
+**Phase 1 and Phase 2 are complete.** All crawls done (~8,946 pages across 5 sources), all 6 tools working, chunking and embeddings applied, and public distribution via GitHub Releases implemented.
 
 ---
 
@@ -18,7 +14,7 @@ _Last updated: 2026-04-20_
 
 | File | Status | Notes |
 |------|--------|-------|
-| `pyproject.toml` | ✅ Done | Deps, entry points (`splunk-mcp`, `splunk-crawl`) |
+| `pyproject.toml` | ✅ Done | Deps, entry points (`splunk-mcp`, `splunk-crawl`, `splunk-setup`) |
 | `.gitignore` | ✅ Done | Python-appropriate; `data/docs/` and `data/*.db` gitignored |
 | `.python-version` | ✅ Done | `3.12` |
 | `src/splunk_docs_mcp/__init__.py` | ✅ Done | Empty package init |
@@ -31,7 +27,9 @@ _Last updated: 2026-04-20_
 | `data/.gitkeep` | ✅ Done | |
 | `data/docs/.gitkeep` | ✅ Done | |
 | `CLAUDE.md` / `PLAN.md` / `TODO.md` | ✅ Done | Session context files |
-| `README.md` | ✅ Done | Setup and usage docs for end users |
+| `README.md` | ✅ Done | Setup and usage docs for end users; rewritten for Phase 2 (splunk-setup flow) |
+| `src/splunk_docs_mcp/setup.py` | ✅ Done | `splunk-setup` command; streams download from GitHub Releases with progress |
+| `.github/workflows/crawl-and-release.yml` | ✅ Done | Weekly cron + workflow_dispatch; crawl all sources + publish DB as release asset |
 
 ---
 
@@ -57,7 +55,7 @@ _Last updated: 2026-04-20_
 | Full Lantern crawl | ✅ Done — 1,284 pages, 1,192 embeddings generated |
 | Full `splunk-enterprise` crawl | ✅ Done — 3,513 pages |
 | Full `splunk-cloud` crawl | ✅ Done — 2,658 pages |
-| Phase 2 — public distribution via GitHub Releases | ⏳ Not started |
+| Phase 2 — public distribution via GitHub Releases | ✅ Done (2026-04-20) |
 
 ---
 
@@ -106,10 +104,10 @@ Documents over 8,000 characters are now split into 1,500-character overlapping c
 
 ---
 
-## Next Steps (priority order)
+## Next Steps
 
-1. **Re-run chunking and embedding passes** against the existing DB — `uv run splunk-crawl --full` will rebuild chunks and re-embed
-2. **Phase 2 — public distribution** — see below
+- See `TODO.md` Priority 3 (nice-to-haves) and Priority 4 (future/optional) for remaining work.
+- Phase 3+ items: SPL examples library, multi-version crawling, cross-version embedding reuse, cross-source deduplication investigation.
 
 ---
 

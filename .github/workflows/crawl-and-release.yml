@@ -1,0 +1,51 @@
+name: Crawl and release
+
+on:
+  schedule:
+    - cron: "0 2 * * 0"   # every Sunday at 02:00 UTC
+  workflow_dispatch:        # manual trigger
+
+permissions:
+  contents: write
+
+jobs:
+  crawl-and-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Crawl all sources
+        run: uv run splunk-crawl
+
+      - name: Set release tag
+        id: tag
+        run: echo "tag=data-$(date -u +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "Splunk docs index — ${{ steps.tag.outputs.tag }}"
+          body: |
+            Automated weekly crawl of Splunk documentation.
+
+            **Sources indexed:**
+            - Splunk Enterprise Security 8.5
+            - Splunk Configuration File Reference 10.2
+            - Splunk Enterprise 10.2
+            - Splunk Cloud Platform 10.3.2512
+            - Splunk Lantern (current)
+
+            Download `splunk_docs.db` and place it in `data/` inside your local clone,
+            or run `uv run splunk-setup` to fetch it automatically.
+          files: data/splunk_docs.db
+          make_latest: true
