@@ -10,10 +10,10 @@ _Last updated: 2026-04-20 (Phase 3 planned)_
 - [x] Add `d.crawled_at` to SELECT in `search_docs()` FTS join in `db.py`; include `"crawled": crawled_at[:10]` in result dict
 - [x] Add `crawled_at` to SELECT in `search_docs_semantic()` in `db.py`; include in result dict
 
-### Item 4: Crawler retry logic
-- [ ] Add `MAX_RETRIES = 3` and `RETRY_DELAYS = [2, 4, 8]` constants at top of `crawler.py`
-- [ ] Wrap `httpx.get()` in retry loop in `_process_url()`; retry on `TimeoutException`, `ConnectError`, `ReadError`, and 5xx; do not retry on 4xx
-- [ ] Verify existing `crawl_state` error recording still fires on final failure
+### Item 4: Crawler retry logic ✅
+- [x] Add `MAX_RETRIES = 3` and `RETRY_DELAYS = [2, 4, 8]` constants at top of `crawler.py`
+- [x] Wrap `httpx.get()` in retry loop in `_process_url()`; retry on `TimeoutException`, `ConnectError`, `ReadError`, and 5xx; do not retry on 4xx
+- [x] Verify existing `crawl_state` error recording still fires on final failure
 
 ### Item 3: Embedding matrix cache at startup
 - [ ] Add `get_all_embeddings(conn)` to `db.py` — returns `(rowids: list[int], source_ids: list[str], matrix: np.ndarray)`

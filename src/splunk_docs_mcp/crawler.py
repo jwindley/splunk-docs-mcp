@@ -42,6 +42,10 @@ logger = logging.getLogger(__name__)
 # Version-number path segments — same pattern as extractor.py
 _VERSION_SEG_RE = re.compile(r"^\d+\.\d+(\.\d+)?$")
 
+# Retry configuration for transient HTTP/network failures
+_MAX_RETRIES = 3
+_RETRY_DELAYS = (2.0, 4.0, 8.0)  # seconds between attempts
+
 
 # ---------------------------------------------------------------------------
 # Stats
@@ -194,14 +198,32 @@ async def _process_url(
     section_filter: str | None,
     delay: float,
 ) -> None:
-    try:
-        resp = await client.get(url)
-        resp.raise_for_status()
-    except Exception as exc:
-        logger.warning(f"  FAIL {url}: {exc}")
+    last_exc: Exception | None = None
+    resp = None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            last_exc = None
+            break
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError) as exc:
+            last_exc = exc
+            logger.warning(f"  RETRY ({attempt + 1}/{_MAX_RETRIES}) {url}: {exc}")
+            await asyncio.sleep(_RETRY_DELAYS[attempt])
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code >= 500 and attempt < _MAX_RETRIES - 1:
+                last_exc = exc
+                logger.warning(f"  RETRY ({attempt + 1}/{_MAX_RETRIES}) {url}: {exc}")
+                await asyncio.sleep(_RETRY_DELAYS[attempt])
+            else:
+                last_exc = exc
+                break
+
+    if last_exc is not None:
+        logger.warning(f"  FAIL {url}: {last_exc}")
         async with conn_lock:
             stats.failed += 1
-            mark_crawl_state(conn, url, source.source_id, "failed", str(exc))
+            mark_crawl_state(conn, url, source.source_id, "failed", str(last_exc))
         await asyncio.sleep(delay)
         return
 
