@@ -28,9 +28,15 @@ SPL examples library (Phase 2+): add the `spl_examples` table below and a
 matching FTS5 table.  The rest of the codebase is unaffected.
 """
 
+import hashlib
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+
+# Chunking constants
+CHUNK_THRESHOLD = 8_000   # characters; documents longer than this are split
+CHUNK_SIZE      = 1_500   # characters per chunk
+CHUNK_OVERLAP   = 200     # overlap between consecutive chunks
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +153,27 @@ def init_db(conn: sqlite3.Connection) -> None:
     except sqlite3.OperationalError:
         pass  # column already exists
 
+    # Chunking columns (migration for existing DBs) -------------------------
+    # has_chunks=1  → this row has been split; exclude from FTS/embedding search
+    # chunk_of      → non-NULL on chunk rows; points to the parent document URL
+    # chunk_index   → 0-based position of this chunk within its parent
+    for ddl in (
+        "ALTER TABLE documents ADD COLUMN has_chunks INTEGER DEFAULT 0",
+        "ALTER TABLE documents ADD COLUMN chunk_of TEXT",
+        "ALTER TABLE documents ADD COLUMN chunk_index INTEGER",
+    ):
+        try:
+            conn.execute(ddl)
+        except sqlite3.OperationalError:
+            pass
+    try:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_documents_chunk_of ON documents(chunk_of)"
+        )
+    except sqlite3.OperationalError:
+        pass
+    conn.commit()
+
 
 # ---------------------------------------------------------------------------
 # Crawler helpers (write path)
@@ -178,7 +205,11 @@ def upsert_document(conn: sqlite3.Connection, doc: dict) -> None:
             file_path    = excluded.file_path,
             section      = excluded.section,
             subsection   = excluded.subsection,
-            slug         = excluded.slug
+            slug         = excluded.slug,
+            has_chunks   = CASE
+                               WHEN excluded.content_hash != content_hash THEN 0
+                               ELSE has_chunks
+                           END
         """,
         doc,
     )
@@ -216,6 +247,109 @@ def get_visited_urls(conn: sqlite3.Connection, source_id: str) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
+# Chunking helpers (write path — called by cli.py chunk pass)
+# ---------------------------------------------------------------------------
+
+
+def _split_content(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
+    """Split text into overlapping fixed-size chunks."""
+    chunks: list[str] = []
+    start = 0
+    while start < len(text):
+        end = min(start + chunk_size, len(text))
+        chunks.append(text[start:end])
+        if end >= len(text):
+            break
+        start = end - overlap
+    return chunks
+
+
+def get_documents_needing_chunking(
+    conn: sqlite3.Connection,
+    threshold: int = CHUNK_THRESHOLD,
+    source_id: str | None = None,
+) -> list[sqlite3.Row]:
+    """Return original (non-chunk) rows with content_md longer than threshold that haven't been chunked yet."""
+    params: list = [threshold]
+    source_filter = ""
+    if source_id:
+        source_filter = "AND source = ?"
+        params.append(source_id)
+    return conn.execute(
+        f"""
+        SELECT id, url, title, source, version, section, subsection, slug,
+               file_path, content_md, content_hash, crawled_at
+        FROM documents
+        WHERE has_chunks = 0
+          AND chunk_of IS NULL
+          AND length(content_md) > ?
+          {source_filter}
+        """,
+        params,
+    ).fetchall()
+
+
+def chunk_document(
+    conn: sqlite3.Connection,
+    parent: dict,
+    chunk_size: int = CHUNK_SIZE,
+    overlap: int = CHUNK_OVERLAP,
+) -> int:
+    """
+    Split a large document into overlapping chunk rows and mark the parent as
+    has_chunks=1 so it is excluded from FTS/embedding search.
+
+    Chunk rows use synthetic URLs of the form ``{parent_url}#chunk-{i}`` and
+    store ``chunk_of = parent_url`` so get_page() can reassemble them.
+
+    Deletes any existing stale chunks before inserting new ones (idempotent).
+    Returns the number of chunks created.
+    """
+    chunks = _split_content(parent["content_md"], chunk_size, overlap)
+    n = len(chunks)
+
+    # Remove stale chunks from a previous pass
+    conn.execute("DELETE FROM documents WHERE chunk_of = ?", (parent["url"],))
+
+    for i, chunk_text in enumerate(chunks):
+        chunk_url = f"{parent['url']}#chunk-{i}"
+        chunk_hash = hashlib.sha256(chunk_text.encode()).hexdigest()
+        conn.execute(
+            """
+            INSERT INTO documents
+                (url, title, source, version, section, subsection, slug,
+                 file_path, content_md, content_hash, crawled_at,
+                 has_chunks, chunk_of, chunk_index)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+            ON CONFLICT(url) DO UPDATE SET
+                content_md   = excluded.content_md,
+                content_hash = excluded.content_hash,
+                chunk_of     = excluded.chunk_of,
+                chunk_index  = excluded.chunk_index
+            """,
+            (
+                chunk_url,
+                f"{parent['title']} [{i + 1}/{n}]",
+                parent["source"],
+                parent["version"],
+                parent["section"],
+                parent["subsection"],
+                parent["slug"],
+                parent["file_path"],
+                chunk_text,
+                chunk_hash,
+                parent["crawled_at"],
+                parent["url"],
+                i,
+            ),
+        )
+
+    conn.execute("UPDATE documents SET has_chunks = 1 WHERE url = ?", (parent["url"],))
+    conn.commit()
+    return n
+
+
+# ---------------------------------------------------------------------------
 # Server query helpers (read path)
 # ---------------------------------------------------------------------------
 
@@ -239,7 +373,8 @@ def search_docs(
     if source:
         source_filter = "AND d.source = ?"
         params.append(source)
-    params.extend([limit])
+    # Fetch extra rows to allow deduplication across chunks of the same parent
+    params.append(limit * 4)
 
     rows = conn.execute(
         f"""
@@ -250,31 +385,71 @@ def search_docs(
             d.version,
             d.section,
             d.subsection,
+            d.chunk_of,
             snippet(documents_fts, 1, '**', '**', '…', 32) AS snippet,
             bm25(documents_fts, 10.0, 1.0) AS score
         FROM documents_fts
         JOIN documents d ON d.id = documents_fts.rowid
         WHERE documents_fts MATCH ?
+          AND d.has_chunks = 0
           {source_filter}
         ORDER BY score
         LIMIT ?
         """,
         params,
     ).fetchall()
-    return [dict(r) for r in rows]
+
+    # Deduplicate: multiple chunks of the same parent may match; keep the
+    # best-scoring chunk per canonical (parent) URL.  BM25 score is negative
+    # so ORDER BY score ASC gives best-first — first occurrence wins.
+    seen: dict[str, dict] = {}
+    for r in rows:
+        d = dict(r)
+        chunk_of = d.pop("chunk_of")
+        canonical = chunk_of if chunk_of else d["url"]
+        d["url"] = canonical
+        if canonical not in seen:
+            seen[canonical] = d
+
+    return list(seen.values())[:limit]
 
 
 def get_page(conn: sqlite3.Connection, url: str) -> dict | None:
     row = conn.execute(
         """
         SELECT url, title, source, version, section, subsection,
-               content_md, crawled_at, length(content_md) AS char_count
+               content_md, crawled_at, has_chunks, chunk_of,
+               length(content_md) AS char_count
         FROM documents
         WHERE url = ?
         """,
         (url,),
     ).fetchone()
-    return dict(row) if row else None
+    if row is None:
+        return None
+
+    page = dict(row)
+
+    if page.get("chunk_of"):
+        # Called with a chunk URL — silently redirect to the parent
+        parent_url: str = page["chunk_of"]
+        page = get_page(conn, parent_url)
+        return page
+
+    if page.get("has_chunks"):
+        # Reassemble the full document from its ordered chunks
+        chunks = conn.execute(
+            "SELECT content_md FROM documents WHERE chunk_of = ? ORDER BY chunk_index",
+            (url,),
+        ).fetchall()
+        if chunks:
+            page["content_md"] = "".join(c["content_md"] for c in chunks)
+            page["char_count"] = len(page["content_md"])
+
+    # Strip internal-only columns from the returned dict
+    page.pop("has_chunks", None)
+    page.pop("chunk_of", None)
+    return page
 
 
 def list_sections(
@@ -285,6 +460,12 @@ def list_sections(
     if source:
         source_filter = "WHERE source = ?"
         params.append(source)
+
+    # Always exclude chunk rows so page counts reflect real documents only
+    if source_filter:
+        source_filter += " AND chunk_of IS NULL"
+    else:
+        source_filter = "WHERE chunk_of IS NULL"
 
     rows = conn.execute(
         f"""
@@ -317,6 +498,7 @@ def browse_section(
         FROM documents
         WHERE section = ?
           AND source = ?
+          AND chunk_of IS NULL
           {sub_filter}
         ORDER BY subsection, title
         """,
@@ -326,7 +508,9 @@ def browse_section(
 
 
 def get_index_info(conn: sqlite3.Connection) -> dict:
-    total = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+    total = conn.execute(
+        "SELECT COUNT(*) FROM documents WHERE chunk_of IS NULL"
+    ).fetchone()[0]
     last_crawled = conn.execute(
         "SELECT MAX(crawled_at) FROM documents"
     ).fetchone()[0]
@@ -376,14 +560,17 @@ def get_documents_without_embeddings(
     Each row exposes: id, title, content_md.
     Used by the post-crawl embedding pass in cli.py.
     """
+    # Exclude parent rows that have been chunked — their content is indexed via
+    # chunk rows; embedding the parent again would waste compute and add noise.
     if source_id:
         return conn.execute(
             "SELECT id, title, content_md FROM documents "
-            "WHERE embedding IS NULL AND source = ?",
+            "WHERE embedding IS NULL AND has_chunks = 0 AND source = ?",
             (source_id,),
         ).fetchall()
     return conn.execute(
-        "SELECT id, title, content_md FROM documents WHERE embedding IS NULL"
+        "SELECT id, title, content_md FROM documents "
+        "WHERE embedding IS NULL AND has_chunks = 0"
     ).fetchall()
 
 
@@ -410,14 +597,15 @@ def search_docs_semantic(
     """
     import numpy as np  # lazy import — only needed when this function is called
 
-    where = "WHERE embedding IS NOT NULL"
+    # Exclude chunked parents — embeddings are on chunk rows instead
+    where = "WHERE embedding IS NOT NULL AND has_chunks = 0"
     params: list = []
     if source:
         where += " AND source = ?"
         params.append(source)
 
     rows = conn.execute(
-        f"SELECT id, url, title, source, version, section, embedding "
+        f"SELECT id, url, title, source, version, section, chunk_of, embedding "
         f"FROM documents {where}",
         params,
     ).fetchall()
@@ -433,17 +621,23 @@ def search_docs_semantic(
     # Dot product of unit-norm vectors == cosine similarity
     scores = mat @ query_vec
 
-    top_idx = int(min(limit, len(rows)))
-    ranked = np.argsort(scores)[::-1][:top_idx]
+    # Gather all ranked indices and deduplicate by canonical (parent) URL,
+    # keeping the highest-scoring chunk per document.
+    ranked_all = np.argsort(scores)[::-1]
+    seen: dict[str, dict] = {}
+    for i in ranked_all:
+        if len(seen) >= limit:
+            break
+        chunk_of = rows[i]["chunk_of"]
+        canonical = chunk_of if chunk_of else rows[i]["url"]
+        if canonical not in seen:
+            seen[canonical] = {
+                "url": canonical,
+                "title": rows[i]["title"].split(" [")[0],  # strip chunk suffix
+                "source": rows[i]["source"],
+                "version": rows[i]["version"],
+                "section": rows[i]["section"],
+                "score": round(float(scores[i]), 4),
+            }
 
-    return [
-        {
-            "url": rows[i]["url"],
-            "title": rows[i]["title"],
-            "source": rows[i]["source"],
-            "version": rows[i]["version"],
-            "section": rows[i]["section"],
-            "score": round(float(scores[i]), 4),
-        }
-        for i in ranked
-    ]
+    return list(seen.values())

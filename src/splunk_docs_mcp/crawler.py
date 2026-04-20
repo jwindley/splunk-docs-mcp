@@ -42,12 +42,6 @@ logger = logging.getLogger(__name__)
 # Version-number path segments — same pattern as extractor.py
 _VERSION_SEG_RE = re.compile(r"^\d+\.\d+(\.\d+)?$")
 
-# Paths that robots.txt blocks on help.splunk.com
-_BLOCKED_PREFIXES = (
-    "https://help.splunk.com/api/",
-    "https://help.splunk.com/bundle/",
-)
-
 
 # ---------------------------------------------------------------------------
 # Stats
@@ -102,6 +96,16 @@ async def crawl_source(
     section_filter:   If set, only crawl pages in this section (e.g. 'user-guide').
                       Useful for fast pipeline testing during development.
     """
+    # Per-source overrides: honour robots.txt Crawl-delay and Request-rate limits.
+    # The CLI --delay arg is a floor; source.crawl_delay raises it if higher.
+    effective_delay = max(delay, source.crawl_delay)
+    # Cap concurrency at source.max_concurrency when set (e.g. 1 for Lantern).
+    effective_concurrency = (
+        min(concurrency, source.max_concurrency)
+        if source.max_concurrency is not None
+        else concurrency
+    )
+
     stats = CrawlStats(source_id=source.source_id)
     conn = get_connection(db_path)
     init_db(conn)
@@ -125,7 +129,7 @@ async def crawl_source(
 
     logger.info(
         f"[{source.source_id}] Starting crawl "
-        f"(concurrency={concurrency}, delay={delay}s"
+        f"(concurrency={effective_concurrency}, delay={effective_delay}s"
         + (f", section={section_filter}" if section_filter else "")
         + ")"
     )
@@ -155,12 +159,12 @@ async def crawl_source(
                         stats=stats,
                         full=full,
                         section_filter=section_filter,
-                        delay=delay,
+                        delay=effective_delay,
                     )
                 finally:
                     queue.task_done()
 
-    workers = [asyncio.create_task(worker()) for _ in range(concurrency)]
+    workers = [asyncio.create_task(worker()) for _ in range(effective_concurrency)]
     await queue.join()
     for w in workers:
         w.cancel()
@@ -286,7 +290,9 @@ def _is_target_url(
 ) -> bool:
     if not url.startswith(source.url_prefix):
         return False
-    if any(url.startswith(p) for p in _BLOCKED_PREFIXES):
+    if source.blocked_path_prefixes and any(
+        url.startswith(p) for p in source.blocked_path_prefixes
+    ):
         return False
 
     # Reject pages from the wrong product version.

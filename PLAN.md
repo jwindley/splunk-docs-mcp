@@ -1,16 +1,16 @@
 # Build Plan — splunk-docs-mcp
 
-_Last updated: 2026-04-19_
+_Last updated: 2026-04-20_
 
 ---
 
 ## Current Status
 
-**Phase 1 is complete.** All code is written, crawled, tested, and documented. The MCP server is in use and working — DB queries run in 5–38 ms, tool results verified 2026-04-19.
+**All code is complete and working.** The MCP server runs, all 6 tools are registered and tested, and initial crawls for `enterprise-security`, `admin-manual`, and a Lantern test section are in the DB. The `splunk-enterprise` and `splunk-cloud` sources are defined in `config.py` but have not been crawled yet. A full Lantern crawl has not been run yet.
 
-Latest changes (2026-04-19):
-- `search_docs_semantic` model now eagerly loaded at server startup (eliminates 6 s first-call delay)
-- `server.py` `instructions` string rewritten as an explicit decision tree with hard call limits (target: 3–4 tool calls per question, down from 7–8)
+**Outstanding before full production use:**
+- Run full crawl for `lantern` (~650 pages, ~1 hr at 5 s/request) — **in progress as of 2026-04-20**
+- Phase 2 (public distribution via GitHub Releases) not started
 
 ---
 
@@ -22,12 +22,12 @@ Latest changes (2026-04-19):
 | `.gitignore` | ✅ Done | Python-appropriate; `data/docs/` and `data/*.db` gitignored |
 | `.python-version` | ✅ Done | `3.12` |
 | `src/splunk_docs_mcp/__init__.py` | ✅ Done | Empty package init |
-| `src/splunk_docs_mcp/config.py` | ✅ Done | `CrawlSource` dataclass, `PHASE1_SOURCES`, `SOURCES_BY_ID`, paths, headers |
-| `src/splunk_docs_mcp/db.py` | ✅ Done | Schema, connection factory, FTS5 + triggers, all query helpers, embedding helpers, `search_docs_semantic` |
+| `src/splunk_docs_mcp/config.py` | ✅ Done | `CrawlSource` dataclass (+ `crawl_delay`, `max_concurrency`, `blocked_path_prefixes`), `PHASE1_SOURCES` (5 active sources), `SOURCES_BY_ID`, paths, headers |
+| `src/splunk_docs_mcp/db.py` | ✅ Done | Schema, connection factory, FTS5 + triggers, all query helpers, embedding helpers |
 | `src/splunk_docs_mcp/extractor.py` | ✅ Done | trafilatura primary, BS4+markdownify fallback, `parse_url_metadata`, `write_markdown_file` |
-| `src/splunk_docs_mcp/server.py` | ✅ Done | FastMCP app + 6 tools: `search_docs`, `search_docs_semantic`, `get_page`, `list_sections`, `browse_section`, `get_index_info` |
+| `src/splunk_docs_mcp/server.py` | ✅ Done | FastMCP app + 6 tools; eager model load at startup; explicit decision-tree instructions |
 | `src/splunk_docs_mcp/cli.py` | ✅ Done | argparse with `--sources`, `--section`, `--concurrency`, `--delay`, `--full`, `--db`, `--docs-dir`, `--verbose`; post-crawl embedding pass |
-| `src/splunk_docs_mcp/crawler.py` | ✅ Done | Two bugs fixed 2026-04-18; verified with full crawl |
+| `src/splunk_docs_mcp/crawler.py` | ✅ Done | BFS crawler; per-source `crawl_delay`, `max_concurrency`, `blocked_path_prefixes`; redirect-aware link extraction; version-segment filtering |
 | `data/.gitkeep` | ✅ Done | |
 | `data/docs/.gitkeep` | ✅ Done | |
 | `CLAUDE.md` / `PLAN.md` / `TODO.md` | ✅ Done | Session context files |
@@ -37,21 +37,31 @@ Latest changes (2026-04-19):
 
 ## What Works
 
-- **Full crawl:** `uv run splunk-crawl` completes successfully for both sources
-- **Index coverage:** 743 ES pages + 216 admin-manual pages (959 total), all sections populated
+- **MCP server:** `uv run splunk-mcp` starts on stdio, all 6 tools registered and responding correctly
+- **BM25 keyword search:** `search_docs` — FTS5, BM25 ranked, title weighted 10×, snippets; 5–38 ms
+- **Semantic search:** `search_docs_semantic` — all-MiniLM-L6-v2 embeddings, in-process cosine similarity; model eagerly loaded at startup (no first-call penalty)
+- **Crawl — enterprise-security:** 743 pages indexed, all 6 ES sections populated, ES 8.5 only (version filter working)
+- **Crawl — admin-manual:** 216 pages indexed
+- **Crawl — lantern (test section):** 92 pages indexed (`Splunk_Success_Framework`); rate limiting (5 s/req, concurrency=1) working correctly; `robots.txt` blocked paths respected
 - **Incremental re-crawl:** unchanged pages skipped via SHA-256 hash comparison
-- **MCP server starts:** `uv run splunk-mcp` runs on stdio, all 6 tools registered
-- **SQLite WAL mode:** server can read while crawler writes
+- **SQLite WAL mode:** MCP server can read while crawler writes
+- **Embeddings:** generated post-crawl for all indexed pages; stored as 384-dim float32 BLOBs
 - **`--section` dev flag:** limits crawl to one section for fast pipeline testing
-- **Version filtering:** crawler only indexes ES 8.5 pages, ignores cross-version nav links
 
 ---
 
 ## What Is Incomplete
 
+| Item | Status |
+|------|--------|
+| Full Lantern crawl | ✅ Done — 1,284 pages, 1,192 embeddings generated |
+| Full `splunk-enterprise` crawl | ✅ Done — 3,513 pages |
+| Full `splunk-cloud` crawl | ✅ Done — 2,658 pages |
+| Phase 2 — public distribution via GitHub Releases | ⏳ Not started |
+
 ---
 
-## Bugs Fixed This Session (2026-04-18)
+## Bugs Fixed (2026-04-18) — both in production code
 
 ### Bug 1 — Crawler used pre-redirect URL as urljoin base (`crawler.py`)
 **Symptom:** All ES sections except `user-guide` had only 1 page in the DB — the seed URL itself.  
@@ -65,20 +75,41 @@ Latest changes (2026-04-19):
 
 ---
 
-## Crawl Results (post-fix, 2026-04-18)
+## Crawl Results
 
 ```
-[enterprise-security] stored=743  skipped=0  failed=2  total=745
-[admin-manual]        stored=216  skipped=0  failed=0  total=216
+[enterprise-security] stored=1275  (2026-04-19/20, full crawl)
+[admin-manual]        stored=216   (2026-04-18)
+[splunk-enterprise]   stored=3513  (2026-04-19/20, full crawl)
+[splunk-cloud]        stored=2658  (2026-04-19/20, full crawl)
+[lantern]             stored=1284  (2026-04-20, full crawl, 1192 embeddings generated)
+TOTAL                 8946
 ```
 
-The 2 ES failures are expected to be transient 404s or network blips, not structural issues. All 6 ES sections confirmed populated.
+Page counts from `SELECT source, COUNT(*) FROM documents GROUP BY source` on 2026-04-20.
+
+---
+
+## Fixes Applied (2026-04-20)
+
+### Fix 1 — Document chunking
+Documents over 8,000 characters are now split into 1,500-character overlapping chunks (200-char overlap) stored as separate rows in `documents` with `chunk_of = parent_url` and `chunk_index`.
+
+- FTS5 and embeddings now index at chunk level → search surfaces the relevant section, not the whole document.
+- Parent rows are marked `has_chunks = 1` and excluded from search queries.
+- `get_page(url)` reassembles all chunks transparently; if called with a chunk URL it redirects to the parent.
+- A new `_chunk_pass()` in `cli.py` runs after each crawl (before the embed pass). With `--full` it deletes and rebuilds all chunks.
+- Schema additions: `has_chunks INTEGER DEFAULT 0`, `chunk_of TEXT`, `chunk_index INTEGER` + index on `chunk_of`. Added via `ALTER TABLE` migrations — safe for existing DBs.
+
+### Fix 2 — Confidence signalling in tool descriptions
+`search_docs` and `search_docs_semantic` docstrings now explicitly instruct Claude to state uncertainty when retrieved content does not directly address the question. The `FastMCP(instructions=...)` block now includes a mandatory CONFIDENCE AND UNCERTAINTY section with the same guidance. Also corrected stale `source=` option lists across all five tool parameter descriptions.
 
 ---
 
 ## Next Steps (priority order)
 
-Phase 1 is complete, including vector/semantic search (2026-04-19). Next up is Phase 2 (public release distribution) — see TODO Priority 3.
+1. **Re-run chunking and embedding passes** against the existing DB — `uv run splunk-crawl --full` will rebuild chunks and re-embed
+2. **Phase 2 — public distribution** — see below
 
 ---
 
@@ -113,9 +144,8 @@ Replace "run splunk-crawl" with "run splunk-setup"; add data freshness note.
 
 ---
 
-## Phase 3+ (not started, not planned in detail)
+## Future / Phase 3+
 
-- Additional crawl sources: Lantern, core Splunk Enterprise (add `CrawlSource` to `config.py` only)
-- SPL examples library: `spl_examples` table + `search_spl` tool (schema stub in `db.py`)
-- ~~Vector/semantic search~~ — **Done (2026-04-19).** `embedding BLOB` on `documents`, all-MiniLM-L6-v2, post-crawl pass in `cli.py`, `search_docs_semantic` MCP tool.
-- Multi-version crawling with version filter on `search_docs` (comment marks where to add it)
+- **SPL examples library** — curated JSON → separate `spl_examples` DB table + `search_spl` MCP tool (schema stub already in `db.py`)
+- **Multi-version crawling** — `version` column already in schema; `search_docs` has a `# Future: add version filter here` comment marking where to add a filter parameter
+- **Cross-version embedding reuse** — when a new version shares pages with the old, copy embeddings by `content_hash` instead of re-encoding (only worth building once multi-version crawling is active)
