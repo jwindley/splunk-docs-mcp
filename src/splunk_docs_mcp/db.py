@@ -268,6 +268,42 @@ def get_visited_urls(conn: sqlite3.Connection, source_id: str) -> set[str]:
     return {row["url"] for row in rows}
 
 
+def merge_source_db(conn: sqlite3.Connection, source_db_path: Path) -> int:
+    """Merge all documents and crawl_state rows from source_db_path into conn.
+
+    Uses ATTACH + INSERT OR IGNORE so existing URLs are skipped silently.
+    The id column is excluded from the INSERT so SQLite auto-assigns new IDs
+    in the target DB; INSERT triggers on documents keep documents_fts in sync.
+
+    Returns the number of document rows successfully inserted.
+    """
+    conn.execute("ATTACH DATABASE ? AS src", (str(source_db_path),))
+    cursor = conn.execute(
+        """
+        INSERT OR IGNORE INTO documents
+            (url, title, source, version, section, subsection, slug,
+             file_path, content_md, content_hash, crawled_at,
+             embedding, has_chunks, chunk_of, chunk_index)
+        SELECT
+            url, title, source, version, section, subsection, slug,
+            file_path, content_md, content_hash, crawled_at,
+            embedding, has_chunks, chunk_of, chunk_index
+        FROM src.documents
+        """
+    )
+    merged = cursor.rowcount
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO crawl_state (url, source, status, error, attempted_at)
+        SELECT url, source, status, error, attempted_at
+        FROM src.crawl_state
+        """
+    )
+    conn.execute("DETACH DATABASE src")
+    conn.commit()
+    return merged
+
+
 def get_crawl_timestamps(conn: sqlite3.Connection, source_id: str) -> dict[str, str]:
     """Return {url: attempted_at} for all crawled URLs of a given source.
 

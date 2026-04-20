@@ -9,9 +9,22 @@ permissions:
   contents: write
 
 jobs:
-  crawl-and-release:
+  # ---------------------------------------------------------------------------
+  # One job per source — crawls in parallel, caches per-source DB incrementally
+  # ---------------------------------------------------------------------------
+  crawl:
+    strategy:
+      fail-fast: false
+      matrix:
+        source:
+          - enterprise-security
+          - admin-manual
+          - splunk-enterprise
+          - splunk-cloud
+          - lantern
+
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 240
 
     steps:
       - name: Checkout
@@ -23,8 +36,68 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Crawl all sources
-        run: uv run splunk-crawl
+      - name: Restore per-source DB cache
+        uses: actions/cache/restore@v4
+        with:
+          path: data/${{ matrix.source }}.db
+          # Restore from the most recent cache for this source (any run)
+          key: splunk-db-${{ matrix.source }}-${{ github.run_id }}
+          restore-keys: |
+            splunk-db-${{ matrix.source }}-
+
+      - name: Crawl ${{ matrix.source }}
+        run: uv run splunk-crawl --sources ${{ matrix.source }} --db data/${{ matrix.source }}.db
+
+      - name: Save per-source DB cache
+        uses: actions/cache/save@v4
+        with:
+          path: data/${{ matrix.source }}.db
+          key: splunk-db-${{ matrix.source }}-${{ github.run_id }}
+
+      - name: Upload per-source DB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-${{ matrix.source }}
+          path: data/${{ matrix.source }}.db
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Aggregation — merge all per-source DBs, export per-source files, release
+  # ---------------------------------------------------------------------------
+  merge-and-release:
+    needs: [crawl]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Download all per-source DB artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: db-*
+          merge-multiple: true
+          path: data/
+
+      - name: Merge per-source DBs
+        run: |
+          uv run splunk-merge \
+            data/enterprise-security.db \
+            data/admin-manual.db \
+            data/splunk-enterprise.db \
+            data/splunk-cloud.db \
+            data/lantern.db \
+            --output data/splunk_docs.db
+
+      - name: Export per-source DBs and manifest
+        run: uv run splunk-merge --export-sources data/export/ --db data/splunk_docs.db
 
       - name: Set release tag
         id: tag
@@ -45,7 +118,15 @@ jobs:
             - Splunk Cloud Platform 10.3.2512
             - Splunk Lantern (current)
 
-            Download `splunk_docs.db` and place it in `data/` inside your local clone,
-            or run `uv run splunk-setup` to fetch it automatically.
-          files: data/splunk_docs.db
+            **Downloads:**
+            - `splunk_docs.db` — full merged index (all sources)
+            - `splunk_docs_<source>.db` — per-source indexes for selective download
+            - `manifest.json` — source list with page counts and file sizes
+
+            Run `uv run splunk-setup` to download the merged index automatically,
+            or clone and run `uv sync` then configure MCP.
+          files: |
+            data/splunk_docs.db
+            data/export/splunk_docs_*.db
+            data/export/manifest.json
           make_latest: true

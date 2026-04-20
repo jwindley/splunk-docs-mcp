@@ -1,6 +1,6 @@
 # TODO — splunk-docs-mcp
 
-_Last updated: 2026-04-20 (Phase 3 planned)_
+_Last updated: 2026-04-20 (Phase 3 — Items 1, 2, 3, 4, 6, 8, 10 complete)_
 
 ---
 
@@ -50,19 +50,12 @@ _Last updated: 2026-04-20 (Phase 3 planned)_
 - [x] Add `get_embedding_by_hash(conn, content_hash) -> bytes | None` helper to `db.py`
 - [x] Modify `_embed_pass()` in `cli.py`: for each document needing an embedding, check `get_embedding_by_hash()` first; copy if found; only batch-encode documents with no matching hash
 
-### Item 1: GHA matrix parallelisation + `merge_dbs()`
-- [ ] Create `src/splunk_docs_mcp/merge.py` with `merge_dbs(source_db_paths: list[Path], output_path: Path)`:
-  - Creates fresh output DB, calls `init_db()`
-  - For each source DB: `ATTACH`, `INSERT OR IGNORE` all `documents` and `crawl_state` rows, `DETACH`
-  - Runs `INSERT INTO documents_fts(documents_fts) VALUES('rebuild')` to repopulate FTS5
-  - Calls `_chunk_pass()` and `_embed_pass()` (idempotent — existing chunks/embeddings skipped)
-- [ ] Add `--export-sources <dir>` flag to `splunk-merge` CLI: exports one `splunk_docs_<source_id>.db` per source + generates `manifest.json`
-- [ ] Add `splunk-merge = "splunk_docs_mcp.merge:main"` entry point to `pyproject.toml`
-- [ ] Add `merge_source_db(main_conn, source_db_path)` helper to `db.py`
-- [ ] Rewrite `.github/workflows/crawl-and-release.yml`:
-  - Matrix strategy: one job per source ID; runs `uv run splunk-crawl --sources <id> --db data/<id>.db`
-  - Per-job: restore GHA cache keyed `splunk-db-<id>-<date>` (restore-key: `splunk-db-<id>-`) for incremental crawling; upload per-source DB as artifact
-  - Aggregation job (`needs: [crawl]`): downloads all artifacts; runs `uv run splunk-merge`; runs `uv run splunk-merge --export-sources`; uploads `splunk_docs.db` + per-source DBs + `manifest.json` as release assets
+### Item 1: GHA matrix parallelisation + `merge_dbs()` ✅
+- [x] Create `src/splunk_docs_mcp/merge.py` with `merge_dbs(source_db_paths, output_path)`, `export_sources(merged_db, export_dir)`, and `main()`
+- [x] Add `--export-sources <dir>` flag to `splunk-merge` CLI; generates per-source DBs + `manifest.json`
+- [x] Add `splunk-merge = "splunk_docs_mcp.merge:main"` entry point to `pyproject.toml`
+- [x] Add `merge_source_db(conn, source_db_path)` helper to `db.py` (ATTACH + INSERT OR IGNORE, auto-assigns new IDs, FTS5 triggers fire correctly)
+- [x] Rewrite `.github/workflows/crawl-and-release.yml`: matrix strategy (one job per source), per-source DB caching with restore-key fallback, aggregation job merges + exports + publishes release
 
 ### Item 7: Multi-version crawling
 - [ ] Add `version: str | None = None` parameter to `search_docs()` in `db.py` at `# Future` comment (line ~369); add `AND version = :version` to query when provided
