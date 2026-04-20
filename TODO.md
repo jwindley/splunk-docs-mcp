@@ -15,13 +15,13 @@ _Last updated: 2026-04-20 (Phase 3 planned)_
 - [x] Wrap `httpx.get()` in retry loop in `_process_url()`; retry on `TimeoutException`, `ConnectError`, `ReadError`, and 5xx; do not retry on 4xx
 - [x] Verify existing `crawl_state` error recording still fires on final failure
 
-### Item 3: Embedding matrix cache at startup
-- [ ] Add `get_all_embeddings(conn)` to `db.py` — returns `(rowids: list[int], source_ids: list[str], matrix: np.ndarray)`
-- [ ] Add `_embedding_cache: tuple | None = None` module-level variable to `server.py`
-- [ ] Load cache immediately after `_get_db()` first initialises the connection
-- [ ] Refactor `search_docs_semantic` tool in `server.py` to use cached matrix with numpy source pre-filter (boolean mask on `source_ids`)
-- [ ] Add new `db_search_semantic_from_matrix(rowids, source_ids, matrix, query_vec, source_filter, limit)` function to `db.py`; keep old `search_docs_semantic()` for CLI use
-- [ ] Add note to `README.md`: restart MCP server after running `splunk-crawl` for semantic search to reflect the updated index
+### Item 3: Embedding matrix cache at startup ✅
+- [x] Add `get_all_embeddings(conn)` to `db.py` — returns `(matrix: np.ndarray, rows: list[dict])`
+- [x] Add `_embed_matrix` / `_embed_rows` module-level variables to `server.py`
+- [x] Load cache immediately after `_get_db()` first initialises the connection
+- [x] Add `search_docs_semantic_from_matrix()` to `db.py`; uses numpy boolean mask for source pre-filter
+- [x] Refactor `search_docs_semantic` tool in `server.py` to use cached matrix
+- [x] Add note to `README.md`: restart MCP server after running `splunk-crawl` for semantic search to reflect the updated index
 
 ---
 

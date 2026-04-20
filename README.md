@@ -108,6 +108,8 @@ To refresh your local database, re-run:
 uv run splunk-setup
 ```
 
+After updating the database, **restart the MCP server** (restart Claude Desktop or reload the MCP connection in your editor). The semantic search index is loaded into memory at server startup — it will not reflect a new database until the server restarts.
+
 ---
 
 ## Building locally (contributors)

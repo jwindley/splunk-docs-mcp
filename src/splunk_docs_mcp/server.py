@@ -36,9 +36,10 @@ from sentence_transformers import SentenceTransformer
 from .config import DB_PATH, SOURCES_BY_ID
 from .db import (
     get_connection,
+    get_all_embeddings,
     init_db,
     search_docs as db_search,
-    search_docs_semantic as db_search_semantic,
+    search_docs_semantic_from_matrix as db_search_semantic,
     get_page as db_get_page,
     list_sections as db_list_sections,
     browse_section as db_browse_section,
@@ -72,12 +73,20 @@ logger.info("Embedding model ready.")
 
 _db: sqlite3.Connection | None = None
 
+# Embedding matrix cache — loaded once on first DB connection.
+# Restart the MCP server after running splunk-crawl to refresh this cache.
+_embed_matrix: "np.ndarray | None" = None
+_embed_rows: "list[dict] | None" = None
+
 
 def _get_db() -> sqlite3.Connection:
-    global _db
+    global _db, _embed_matrix, _embed_rows
     if _db is None:
         _db = get_connection(DB_PATH)
         init_db(_db)
+        logger.info("Loading embedding matrix into cache…")
+        _embed_matrix, _embed_rows = get_all_embeddings(_db)
+        logger.info("Embedding cache ready (%d vectors).", _embed_matrix.shape[0])
     return _db
 
 
@@ -269,9 +278,17 @@ def search_docs_semantic(
             valid = ", ".join(SOURCES_BY_ID.keys())
             return [{"error": f"Unknown source '{source}'. Valid options: {valid}"}]
 
-        q_vec = _embed_model.encode(query, normalize_embeddings=True).astype(np.float32)
+        _get_db()  # ensure cache is initialised
+        if _embed_matrix is None or _embed_matrix.shape[0] == 0:
+            return [{
+                "message": (
+                    "No embeddings found. Run 'uv run splunk-crawl' to generate them. "
+                    "You can also try search_docs() for keyword-based search."
+                )
+            }]
 
-        results = db_search_semantic(_get_db(), q_vec, source=source, limit=limit)
+        q_vec = _embed_model.encode(query, normalize_embeddings=True).astype(np.float32)
+        results = db_search_semantic(_embed_matrix, _embed_rows, q_vec, source=source, limit=limit)
         if not results:
             return [{
                 "message": (

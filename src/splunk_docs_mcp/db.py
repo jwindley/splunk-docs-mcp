@@ -577,8 +577,99 @@ def get_documents_without_embeddings(
 
 
 # ---------------------------------------------------------------------------
-# Semantic search (read path — called by server.py)
+# Semantic search — matrix helpers (read path — called by server.py)
 # ---------------------------------------------------------------------------
+
+
+def get_all_embeddings(
+    conn: sqlite3.Connection,
+) -> "tuple[numpy.ndarray, list[dict]]":  # noqa: F821
+    """
+    Load all embeddings into a NumPy matrix alongside lightweight row metadata.
+
+    Returns (matrix, rows) where matrix is shape (N, 384) float32 and rows[i]
+    contains the metadata dict for matrix row i.  Used by server.py to build a
+    module-level cache that is queried on every search_docs_semantic call without
+    hitting the database.
+    """
+    import numpy as np
+
+    db_rows = conn.execute(
+        "SELECT id, url, title, source, version, section, chunk_of, crawled_at, embedding "
+        "FROM documents WHERE embedding IS NOT NULL AND has_chunks = 0"
+    ).fetchall()
+
+    if not db_rows:
+        return np.empty((0, 384), dtype=np.float32), []
+
+    meta = [
+        {
+            "url": r["url"],
+            "title": r["title"],
+            "source": r["source"],
+            "version": r["version"],
+            "section": r["section"],
+            "chunk_of": r["chunk_of"],
+            "crawled_at": r["crawled_at"],
+        }
+        for r in db_rows
+    ]
+    matrix = np.stack(
+        [np.frombuffer(r["embedding"], dtype=np.float32) for r in db_rows]
+    )
+    return matrix, meta
+
+
+def search_docs_semantic_from_matrix(
+    matrix: "numpy.ndarray",  # noqa: F821
+    rows: list[dict],
+    query_vec: "numpy.ndarray",  # noqa: F821
+    source: str | None = None,
+    limit: int = 5,
+) -> list[dict]:
+    """
+    Cosine-similarity search against a pre-loaded embedding matrix.
+
+    Accepts the (matrix, rows) tuple returned by get_all_embeddings() so the
+    database is not touched at query time.  Applies an optional source pre-filter
+    via numpy boolean indexing before computing the dot product.
+    """
+    import numpy as np
+
+    if matrix.shape[0] == 0:
+        return []
+
+    if source:
+        mask = np.array([r["source"] == source for r in rows])
+        if not mask.any():
+            return []
+        mat = matrix[mask]
+        filtered = [r for r, m in zip(rows, mask) if m]
+    else:
+        mat = matrix
+        filtered = rows
+
+    scores = mat @ query_vec
+    ranked = np.argsort(scores)[::-1]
+
+    seen: dict[str, dict] = {}
+    for i in ranked:
+        if len(seen) >= limit:
+            break
+        r = filtered[i]
+        canonical = r["chunk_of"] if r["chunk_of"] else r["url"]
+        if canonical not in seen:
+            seen[canonical] = {
+                "url": canonical,
+                "title": r["title"].split(" [")[0],  # strip chunk suffix
+                "source": r["source"],
+                "version": r["version"],
+                "section": r["section"],
+                "score": round(float(scores[i]), 4),
+                "crawled": (r["crawled_at"] or "")[:10],
+            }
+
+    return list(seen.values())
 
 
 def search_docs_semantic(
