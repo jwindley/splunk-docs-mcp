@@ -486,6 +486,7 @@ def search_docs(
     conn: sqlite3.Connection,
     query: str,
     source: str | None = None,
+    version: str | None = None,
     limit: int = 5,
 ) -> list[dict]:
     """
@@ -493,14 +494,15 @@ def search_docs(
 
     Title matches are weighted 10x higher than body matches via the bm25()
     column weights argument.  Lower (more negative) score = better match.
-
-    Future: add a `version` parameter here when multi-version support is added.
     """
     params: list = [query]
-    source_filter = ""
+    filters = ""
     if source:
-        source_filter = "AND d.source = ?"
+        filters += " AND d.source = ?"
         params.append(source)
+    if version:
+        filters += " AND d.version = ?"
+        params.append(version)
     # Fetch extra rows to allow deduplication across chunks of the same parent
     params.append(limit * 4)
 
@@ -521,7 +523,7 @@ def search_docs(
         JOIN documents d ON d.id = documents_fts.rowid
         WHERE documents_fts MATCH ?
           AND d.has_chunks = 0
-          {source_filter}
+          {filters}
         ORDER BY score
         LIMIT ?
         """,
@@ -753,22 +755,27 @@ def search_docs_semantic_from_matrix(
     rows: list[dict],
     query_vec: "numpy.ndarray",  # noqa: F821
     source: str | None = None,
+    version: str | None = None,
     limit: int = 5,
 ) -> list[dict]:
     """
     Cosine-similarity search against a pre-loaded embedding matrix.
 
     Accepts the (matrix, rows) tuple returned by get_all_embeddings() so the
-    database is not touched at query time.  Applies an optional source pre-filter
-    via numpy boolean indexing before computing the dot product.
+    database is not touched at query time.  Applies optional source and version
+    pre-filters via numpy boolean indexing before computing the dot product.
     """
     import numpy as np
 
     if matrix.shape[0] == 0:
         return []
 
-    if source:
-        mask = np.array([r["source"] == source for r in rows])
+    if source or version:
+        mask = np.ones(len(rows), dtype=bool)
+        if source:
+            mask &= np.array([r["source"] == source for r in rows])
+        if version:
+            mask &= np.array([r["version"] == version for r in rows])
         if not mask.any():
             return []
         mat = matrix[mask]

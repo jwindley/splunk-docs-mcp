@@ -19,9 +19,13 @@ The primary use case is giving Claude (via MCP) accurate, version-specific Splun
 | Source ID | Display Name | Version | Base URL | Pages |
 |-----------|-------------|---------|----------|-------|
 | `enterprise-security` | Splunk Enterprise Security 8.5 | 8.5 | `help.splunk.com/en/splunk-enterprise-security-8/` | 1,275 |
+| `enterprise-security-8-4` | Splunk Enterprise Security 8.4 | 8.4 | `help.splunk.com/en/splunk-enterprise-security-8/` | ~1,200 est. |
+| `enterprise-security-8-3` | Splunk Enterprise Security 8.3 | 8.3 | `help.splunk.com/en/splunk-enterprise-security-8/` | ~1,100 est. |
 | `admin-manual` | Splunk Configuration File Reference 10.2 | 10.2 | `help.splunk.com/en/data-management/splunk-enterprise-admin-manual/10.2/configuration-file-reference/` | 216 |
 | `splunk-enterprise` | Splunk Enterprise 10.2 | 10.2 | `help.splunk.com/en/splunk-enterprise/` | 3,513 |
+| `splunk-enterprise-10-1` | Splunk Enterprise 10.1 | 10.1 | `help.splunk.com/en/splunk-enterprise/` | ~3,400 est. |
 | `splunk-cloud` | Splunk Cloud Platform 10.3.2512 | 10.3.2512 | `help.splunk.com/en/splunk-cloud-platform/` | 2,658 |
+| `splunk-cloud-10-2` | Splunk Cloud Platform 10.2 | 10.2 | `help.splunk.com/en/splunk-cloud-platform/` | ~2,500 est. |
 | `lantern` | Splunk Lantern | current | `lantern.splunk.com/` | 1,284 |
 
 ---

@@ -104,12 +104,21 @@ mcp = FastMCP(
         "SOAR, Observability, or any other Splunk product or feature, use the tools below "
         "to retrieve the current documentation first, then answer from that.\n\n"
 
-        "Available sources (use the source= parameter to target a specific one):\n"
-        "  enterprise-security  — Splunk Enterprise Security 8.5\n"
-        "  admin-manual         — Splunk Configuration File Reference 10.2\n"
-        "  splunk-enterprise    — Splunk Enterprise 10.2\n"
-        "  splunk-cloud         — Splunk Cloud Platform 10.3.2512\n"
-        "  lantern              — Splunk Lantern (use-case guidance, best practices)\n\n"
+        "Available sources (use source= to target one; combine with version= to pinpoint):\n"
+        "  enterprise-security      — Splunk Enterprise Security 8.5\n"
+        "  enterprise-security-8-4  — Splunk Enterprise Security 8.4\n"
+        "  enterprise-security-8-3  — Splunk Enterprise Security 8.3\n"
+        "  admin-manual             — Splunk Configuration File Reference 10.2\n"
+        "  splunk-enterprise        — Splunk Enterprise 10.2\n"
+        "  splunk-enterprise-10-1   — Splunk Enterprise 10.1\n"
+        "  splunk-cloud             — Splunk Cloud Platform 10.3.2512\n"
+        "  splunk-cloud-10-2        — Splunk Cloud Platform 10.2\n"
+        "  lantern                  — Splunk Lantern (use-case guidance, best practices)\n\n"
+        "Version filter (version= on search_docs / search_docs_semantic):\n"
+        "  Use version= to filter across sources by product version when the user asks\n"
+        "  about a specific release. Example: version='8.4' returns ES 8.4 docs only.\n"
+        "  Valid values: '8.3', '8.4', '8.5', '10.1', '10.2', '10.3.2512', 'current'.\n"
+        "  Combine source= and version= for precise targeting (e.g. ES 8.4 only).\n\n"
 
         "DECISION TREE — apply before every question:\n\n"
 
@@ -188,13 +197,21 @@ def search_docs(
         str | None,
         Field(description=(
             "Limit search to a specific source. "
-            "Options: 'enterprise-security', 'admin-manual', 'splunk-enterprise', "
-            "'splunk-cloud', 'lantern'. "
+            "Options: 'enterprise-security', 'enterprise-security-8-4', "
+            "'enterprise-security-8-3', 'admin-manual', 'splunk-enterprise', "
+            "'splunk-enterprise-10-1', 'splunk-cloud', 'splunk-cloud-10-2', 'lantern'. "
             "Omit to search across all indexed sources."
         )),
     ] = None,
-    # Future: add `version: str | None = None` filter here when multi-version
-    # support is added (Phase 2+). For now, one version per source is indexed.
+    version: Annotated[
+        str | None,
+        Field(description=(
+            "Filter by product version. "
+            "Valid values: '8.3', '8.4', '8.5', '10.1', '10.2', '10.3.2512', 'current'. "
+            "Combine with source= for precise targeting, or use alone to search "
+            "a specific release across all sources that have it."
+        )),
+    ] = None,
     limit: Annotated[
         int,
         Field(description="Maximum number of results to return (1–20).", ge=1, le=20),
@@ -219,12 +236,12 @@ def search_docs(
             valid = ", ".join(SOURCES_BY_ID.keys())
             return [{"error": f"Unknown source '{source}'. Valid options: {valid}"}]
 
-        results = db_search(_get_db(), query, source=source, limit=limit)
+        results = db_search(_get_db(), query, source=source, version=version, limit=limit)
         if not results:
             return [{"message": "No results found. Try broader keywords or check get_index_info() to confirm the index is populated."}]
         return results
     finally:
-        logger.info("search_docs(query=%r, source=%r, limit=%d) — %.1f ms", query, source, limit, (time.perf_counter() - t0) * 1000)
+        logger.info("search_docs(query=%r, source=%r, version=%r, limit=%d) — %.1f ms", query, source, version, limit, (time.perf_counter() - t0) * 1000)
 
 
 # ---------------------------------------------------------------------------
@@ -245,9 +262,18 @@ def search_docs_semantic(
         str | None,
         Field(description=(
             "Limit search to a specific source. "
-            "Options: 'enterprise-security', 'admin-manual', 'splunk-enterprise', "
-            "'splunk-cloud', 'lantern'. "
+            "Options: 'enterprise-security', 'enterprise-security-8-4', "
+            "'enterprise-security-8-3', 'admin-manual', 'splunk-enterprise', "
+            "'splunk-enterprise-10-1', 'splunk-cloud', 'splunk-cloud-10-2', 'lantern'. "
             "Omit to search across all indexed sources."
+        )),
+    ] = None,
+    version: Annotated[
+        str | None,
+        Field(description=(
+            "Filter by product version. "
+            "Valid values: '8.3', '8.4', '8.5', '10.1', '10.2', '10.3.2512', 'current'. "
+            "Combine with source= for precise targeting."
         )),
     ] = None,
     limit: Annotated[
@@ -288,7 +314,7 @@ def search_docs_semantic(
             }]
 
         q_vec = _embed_model.encode(query, normalize_embeddings=True).astype(np.float32)
-        results = db_search_semantic(_embed_matrix, _embed_rows, q_vec, source=source, limit=limit)
+        results = db_search_semantic(_embed_matrix, _embed_rows, q_vec, source=source, version=version, limit=limit)
         if not results:
             return [{
                 "message": (
@@ -299,8 +325,8 @@ def search_docs_semantic(
         return results
     finally:
         logger.info(
-            "search_docs_semantic(query=%r, source=%r, limit=%d) — %.1f ms",
-            query, source, limit, (time.perf_counter() - t0) * 1000,
+            "search_docs_semantic(query=%r, source=%r, version=%r, limit=%d) — %.1f ms",
+            query, source, version, limit, (time.perf_counter() - t0) * 1000,
         )
 
 

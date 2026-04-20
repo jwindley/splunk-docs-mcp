@@ -1,6 +1,6 @@
 # TODO — splunk-docs-mcp
 
-_Last updated: 2026-04-20 (Phase 3 — Items 1, 2, 3, 4, 6, 8, 10 complete)_
+_Last updated: 2026-04-20 (Phase 3 — Items 1, 2, 3, 4, 6, 7, 8, 10 complete)_
 
 ---
 
@@ -57,16 +57,13 @@ _Last updated: 2026-04-20 (Phase 3 — Items 1, 2, 3, 4, 6, 8, 10 complete)_
 - [x] Add `merge_source_db(conn, source_db_path)` helper to `db.py` (ATTACH + INSERT OR IGNORE, auto-assigns new IDs, FTS5 triggers fire correctly)
 - [x] Rewrite `.github/workflows/crawl-and-release.yml`: matrix strategy (one job per source), per-source DB caching with restore-key fallback, aggregation job merges + exports + publishes release
 
-### Item 7: Multi-version crawling
-- [ ] Add `version: str | None = None` parameter to `search_docs()` in `db.py` at `# Future` comment (line ~369); add `AND version = :version` to query when provided
-- [ ] Mirror `version` parameter in `search_docs` tool in `server.py`; update tool docstring with available version values
-- [ ] Add 4 new `CrawlSource` entries to `PHASE1_SOURCES` in `config.py`:
-  - `splunk-enterprise-10-1` — Splunk Enterprise 10.1, same `url_prefix` as 10.2, `version="10.1"`
-  - `enterprise-security-8-4` — ES 8.4, same `url_prefix` as 8.5, `version="8.4"`
-  - `enterprise-security-8-3` — ES 8.3, same `url_prefix` as 8.5, `version="8.3"`
-  - `splunk-cloud-10-2` — Splunk Cloud 10.2, same `url_prefix` as 10.3.2512, `version="10.2"`
-- [ ] Update MCP tool instructions in `server.py` to document when to use `version=` filter
-- [ ] Update source table in `CLAUDE.md`
+### Item 7: Multi-version crawling ✅
+- [x] Add `version: str | None = None` to `search_docs()` in `db.py`; `AND d.version = ?` filter applied when provided
+- [x] Add `version` filter to `search_docs_semantic_from_matrix()` via numpy boolean mask
+- [x] Mirror `version` parameter in both `search_docs` and `search_docs_semantic` tools in `server.py`; Field description lists valid values
+- [x] Add 4 new `CrawlSource` entries to `config.py`: `enterprise-security-8-4`, `enterprise-security-8-3`, `splunk-enterprise-10-1`, `splunk-cloud-10-2`
+- [x] Update MCP instructions in `server.py`: expanded source list + version filter guidance section
+- [x] Update source table in `CLAUDE.md`; update GHA matrix + merge step for 9 sources
 
 ---
 

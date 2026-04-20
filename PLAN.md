@@ -1,6 +1,6 @@
 # Build Plan — splunk-docs-mcp
 
-_Last updated: 2026-04-20 (Phase 3 — Item 1 complete)_
+_Last updated: 2026-04-20 (Phase 3 — Items 1 and 7 complete)_
 
 ---
 
@@ -134,7 +134,7 @@ Ten improvements across four tiers. See `TODO.md` for subtask breakdown.
 ### Tier 3 — Scalability (item 6 before item 7; item 1 before item 7)
 - **Item 6**: Embedding reuse via `content_hash` — index on `content_hash`; copy embedding from existing row with same hash before encoding (`db.py`, `cli.py`)
 - **Item 1**: ✅ GHA matrix parallelisation — `merge.py` + `merge_source_db()` in `db.py` + `splunk-merge` entry point; GHA workflow rewritten with matrix (5 parallel jobs) + aggregation job; per-source DB caching + per-source export + `manifest.json`
-- **Item 7**: Multi-version crawling — add ES 8.3/8.4, Enterprise 10.1, Cloud 10.2 to `config.py`; add `version` filter parameter to `search_docs` at `# Future` comment in `db.py`
+- **Item 7**: ✅ Multi-version crawling — 4 new `CrawlSource` entries (ES 8.3/8.4, Enterprise 10.1, Cloud 10.2); `version` filter on `search_docs` + `search_docs_semantic`; instructions updated; GHA now 9-job matrix
 
 ### Tier 4 — Polish (requires items 1 and 7)
 - **Item 5**: Cross-source deduplication — `is_duplicate INTEGER DEFAULT 0` column; `_dedup_pass()` in `cli.py`; suppress duplicate URLs from FTS and semantic search (`db.py`)
