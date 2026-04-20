@@ -104,6 +104,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help=f"Root directory for Markdown output files. Default: {DOCS_DIR}",
     )
     p.add_argument(
+        "--delay-jitter",
+        type=float,
+        default=0.0,
+        metavar="SECONDS",
+        help=(
+            "Maximum random jitter added to each request delay "
+            "(uniform distribution over [0, JITTER]). Default: 0."
+        ),
+    )
+    p.add_argument(
         "--verbose", "-v",
         action="store_true",
         default=False,
@@ -130,6 +140,7 @@ async def _run(args: argparse.Namespace) -> int:
             docs_dir=args.docs_dir,
             concurrency=args.concurrency,
             delay=args.delay,
+            delay_jitter=args.delay_jitter,
             full=args.full,
             section_filter=args.section,
         )
@@ -139,9 +150,10 @@ async def _run(args: argparse.Namespace) -> int:
     for s in all_stats:
         print(f"  {s.summary()}")
 
-    # Post-crawl pass order: chunk first, then embed (so chunk rows get embeddings)
+    # Post-crawl pass order: chunk → embed → dedup
     _chunk_pass(args, sources)
     _embed_pass(args, sources)
+    _dedup_pass(args)
 
     total_failures = sum(s.failed for s in all_stats)
     return 1 if total_failures > 0 else 0
@@ -275,6 +287,24 @@ def _embed_pass(args: argparse.Namespace, sources: list[CrawlSource]) -> None:
         "Embedding pass complete — %d encoded, %d reused from hash.",
         len(to_encode), reused,
     )
+
+
+def _dedup_pass(args: argparse.Namespace) -> None:
+    """
+    Mark cross-source duplicate documents so they are excluded from search results.
+
+    Runs across ALL sources in the DB (not just the currently crawled subset) so
+    that newly crawled pages are correctly evaluated against the full corpus.
+    Idempotent — always resets and rebuilds from scratch.
+    """
+    logger = logging.getLogger(__name__)
+    conn = db_module.get_connection(args.db)
+    db_module.init_db(conn)
+    n = db_module.run_dedup_pass(conn)
+    if n:
+        logger.info("Dedup pass complete — %d duplicate rows suppressed.", n)
+    else:
+        logger.info("Dedup pass complete — no cross-source duplicates found.")
 
 
 def main() -> None:

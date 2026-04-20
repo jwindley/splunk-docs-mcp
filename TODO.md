@@ -1,6 +1,6 @@
 # TODO — splunk-docs-mcp
 
-_Last updated: 2026-04-20 (Phase 3 — Items 1, 2, 3, 4, 6, 7, 8, 10 complete)_
+_Last updated: 2026-04-20 (Phase 3 — Items 1, 2, 3, 4, 5, 6, 7, 8, 10 complete; Priority 5 mostly done)_
 
 ---
 
@@ -69,12 +69,12 @@ _Last updated: 2026-04-20 (Phase 3 — Items 1, 2, 3, 4, 6, 7, 8, 10 complete)_
 
 ## ⚪ Priority 4 — Tier 4: Polish (requires items 1 and 7)
 
-### Item 5: Cross-source deduplication
-- [ ] Add `is_duplicate INTEGER DEFAULT 0` column migration to `init_db()` in `db.py` (ALTER TABLE ... ADD COLUMN, safe for existing DBs)
-- [ ] Add `run_dedup_pass(conn, source_ids)` to `db.py`: group by `content_hash` across sources; retain highest-priority source row; mark others + their chunks `is_duplicate = 1`. Priority order: `enterprise-security` > `admin-manual` > `splunk-enterprise` > `splunk-cloud` > `lantern`
-- [ ] Update `search_docs()` and `search_docs_semantic()` WHERE clauses: add `AND is_duplicate = 0`
-- [ ] Add `_dedup_pass()` call to `cli.py` after `_embed_pass()` (runs every crawl; resets + reruns on `--full`)
-- [ ] `get_page(url)` requires no change — `is_duplicate` only affects search, not direct URL lookup
+### Item 5: Cross-source deduplication ✅
+- [x] Add `is_duplicate INTEGER DEFAULT 0` column migration to `init_db()` in `db.py`
+- [x] Add `run_dedup_pass(conn)` to `db.py`: groups by `content_hash` across sources; keeps highest-priority source (ES 8.5 > ES 8.4 > ES 8.3 > admin-manual > Enterprise 10.2 > Enterprise 10.1 > Cloud 10.3 > Cloud 10.2 > Lantern); marks others + their chunks `is_duplicate = 1`
+- [x] `search_docs()`: apply `AND is_duplicate = 0` when no `version=` filter; bypass dedup for version-specific queries so all versions are searchable
+- [x] `get_all_embeddings()`: include `is_duplicate` in row metadata; `search_docs_semantic_from_matrix()` applies same bypass logic
+- [x] Add `_dedup_pass()` to `cli.py`; called after `_embed_pass()` on every crawl
 
 ### Item 9: `splunk-setup` version selection UI
 - [ ] Define `manifest.json` schema: `{generated_at, total_pages, sources: [{source_id, display_name, version, pages, chunks, file_name, size_bytes}]}`
@@ -91,11 +91,11 @@ _Last updated: 2026-04-20 (Phase 3 — Items 1, 2, 3, 4, 6, 7, 8, 10 complete)_
 ## 🔵 Priority 5 — Existing nice-to-haves (carried from Phase 2)
 
 - [ ] Investigate the 2 ES crawl failures: `sqlite3 data/splunk_docs.db "SELECT url, error FROM crawl_state WHERE status='failed';"`
-- [ ] Add `--delay-jitter` flag to crawler to randomise per-request delay
-- [ ] Add `pytest` tests for `parse_url_metadata()` covering ES, admin-manual, and Lantern URL patterns
-- [ ] Add `pytest` tests for `_section_from_url()` with redirect-destination URLs
-- [ ] Add `pytest` tests for `_normalise_url()` edge cases (fragments, query strings, mailto)
-- [ ] Add `pytest` test for `_is_target_url()` version-filter logic (ES 8.0 rejected, ES 8.5 allowed, admin-manual and Lantern unaffected)
+- [x] Add `--delay-jitter` flag to crawler to randomise per-request delay (`crawler.py`, `cli.py`)
+- [x] Add `pytest` tests for `parse_url_metadata()` covering ES, admin-manual, and Lantern URL patterns (`tests/test_extractor.py`)
+- [x] Add `pytest` tests for `_section_from_url()` with redirect-destination URLs (`tests/test_crawler.py`)
+- [x] Add `pytest` tests for `_normalise_url()` edge cases (fragments, query strings, mailto) (`tests/test_crawler.py`)
+- [x] Add `pytest` test for `_is_target_url()` version-filter logic (ES 8.0 rejected, ES 8.5 allowed, admin-manual and Lantern unaffected) (`tests/test_crawler.py`)
 
 ---
 

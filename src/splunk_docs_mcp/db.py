@@ -180,6 +180,13 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_documents_content_hash ON documents(content_hash)"
     )
+    # Deduplication column (migration for existing DBs) -------------------------
+    # is_duplicate=1 → content_hash exists in a higher-priority source; excluded
+    # from search unless the caller passes an explicit version= filter.
+    try:
+        conn.execute("ALTER TABLE documents ADD COLUMN is_duplicate INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
 
 
@@ -302,6 +309,66 @@ def merge_source_db(conn: sqlite3.Connection, source_db_path: Path) -> int:
     conn.execute("DETACH DATABASE src")
     conn.commit()
     return merged
+
+
+# Source priority for dedup: lower index = higher priority (wins the dedup).
+# When the same content_hash exists in multiple sources, the row from the
+# highest-priority source is kept; all others are marked is_duplicate=1.
+_DEDUP_PRIORITY: list[str] = [
+    "enterprise-security",
+    "enterprise-security-8-4",
+    "enterprise-security-8-3",
+    "admin-manual",
+    "splunk-enterprise",
+    "splunk-enterprise-10-1",
+    "splunk-cloud",
+    "splunk-cloud-10-2",
+    "lantern",
+]
+
+
+def run_dedup_pass(conn: sqlite3.Connection) -> int:
+    """
+    Mark cross-source duplicates: rows sharing a content_hash with a
+    higher-priority source get is_duplicate=1 and are excluded from search.
+
+    Chunk rows inherit the is_duplicate value of their parent.
+    Idempotent — resets all flags before re-running.
+    Returns the number of parent rows marked as duplicates.
+    """
+    conn.execute("UPDATE documents SET is_duplicate = 0")
+
+    # Find content hashes present in more than one source (parent rows only)
+    dup_rows = conn.execute(
+        """
+        SELECT content_hash
+        FROM documents
+        WHERE chunk_of IS NULL
+        GROUP BY content_hash
+        HAVING COUNT(DISTINCT source) > 1
+        """
+    ).fetchall()
+
+    priority = {s: i for i, s in enumerate(_DEDUP_PRIORITY)}
+    total = 0
+
+    for row in dup_rows:
+        ch = row["content_hash"]
+        parents = conn.execute(
+            "SELECT id, url, source FROM documents WHERE content_hash = ? AND chunk_of IS NULL",
+            (ch,),
+        ).fetchall()
+        winner = min(parents, key=lambda r: priority.get(r["source"], 999))
+        for p in parents:
+            if p["id"] != winner["id"]:
+                conn.execute("UPDATE documents SET is_duplicate = 1 WHERE id = ?", (p["id"],))
+                conn.execute(
+                    "UPDATE documents SET is_duplicate = 1 WHERE chunk_of = ?", (p["url"],)
+                )
+                total += 1
+
+    conn.commit()
+    return total
 
 
 def get_crawl_timestamps(conn: sqlite3.Connection, source_id: str) -> dict[str, str]:
@@ -503,6 +570,10 @@ def search_docs(
     if version:
         filters += " AND d.version = ?"
         params.append(version)
+    else:
+        # Without a version filter the caller wants general results — suppress
+        # cross-source duplicates so the same content doesn't appear twice.
+        filters += " AND d.is_duplicate = 0"
     # Fetch extra rows to allow deduplication across chunks of the same parent
     params.append(limit * 4)
 
@@ -725,7 +796,8 @@ def get_all_embeddings(
     import numpy as np
 
     db_rows = conn.execute(
-        "SELECT id, url, title, source, version, section, chunk_of, crawled_at, embedding "
+        "SELECT id, url, title, source, version, section, chunk_of, crawled_at, "
+        "is_duplicate, embedding "
         "FROM documents WHERE embedding IS NOT NULL AND has_chunks = 0"
     ).fetchall()
 
@@ -741,6 +813,7 @@ def get_all_embeddings(
             "section": r["section"],
             "chunk_of": r["chunk_of"],
             "crawled_at": r["crawled_at"],
+            "is_duplicate": bool(r["is_duplicate"]),
         }
         for r in db_rows
     ]
@@ -770,19 +843,18 @@ def search_docs_semantic_from_matrix(
     if matrix.shape[0] == 0:
         return []
 
-    if source or version:
-        mask = np.ones(len(rows), dtype=bool)
-        if source:
-            mask &= np.array([r["source"] == source for r in rows])
-        if version:
-            mask &= np.array([r["version"] == version for r in rows])
-        if not mask.any():
-            return []
-        mat = matrix[mask]
-        filtered = [r for r, m in zip(rows, mask) if m]
+    mask = np.ones(len(rows), dtype=bool)
+    if source:
+        mask &= np.array([r["source"] == source for r in rows])
+    if version:
+        mask &= np.array([r["version"] == version for r in rows])
     else:
-        mat = matrix
-        filtered = rows
+        # No version filter → suppress cross-source duplicates (same logic as FTS search)
+        mask &= np.array([not r["is_duplicate"] for r in rows])
+    if not mask.any():
+        return []
+    mat = matrix[mask]
+    filtered = [r for r, m in zip(rows, mask) if m]
 
     scores = mat @ query_vec
     ranked = np.argsort(scores)[::-1]

@@ -18,6 +18,7 @@ Design
 import asyncio
 import hashlib
 import logging
+import random
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -83,6 +84,7 @@ async def crawl_source(
     docs_dir: Path = DOCS_DIR,
     concurrency: int = 3,
     delay: float = 0.5,
+    delay_jitter: float = 0.0,
     full: bool = False,
     section_filter: str | None = None,
 ) -> CrawlStats:
@@ -189,6 +191,7 @@ async def crawl_source(
                         full=full,
                         section_filter=section_filter,
                         delay=effective_delay,
+                        delay_jitter=delay_jitter,
                     )
                 finally:
                     queue.task_done()
@@ -222,6 +225,7 @@ async def _process_url(
     full: bool,
     section_filter: str | None,
     delay: float,
+    delay_jitter: float = 0.0,
 ) -> None:
     last_exc: Exception | None = None
     resp = None
@@ -249,7 +253,7 @@ async def _process_url(
         async with conn_lock:
             stats.failed += 1
             mark_crawl_state(conn, url, source.source_id, "failed", str(last_exc))
-        await asyncio.sleep(delay)
+        await asyncio.sleep(delay + (random.uniform(0, delay_jitter) if delay_jitter else 0))
         return
 
     html = resp.text
@@ -303,7 +307,7 @@ async def _process_url(
                 visited.add(link)
                 await queue.put(link)
 
-    await asyncio.sleep(delay)
+    await asyncio.sleep(delay + (random.uniform(0, delay_jitter) if delay_jitter else 0))
 
 
 # ---------------------------------------------------------------------------
