@@ -1,6 +1,6 @@
 # TODO — splunk-docs-mcp
 
-_Last updated: 2026-04-20_
+_Last updated: 2026-04-20 (Phase 2 complete)_
 
 ---
 
@@ -14,20 +14,16 @@ _Last updated: 2026-04-20_
 
 ## 🔴 Priority 1 — Apply chunking + embeddings to existing DB
 
-- [ ] **Run `uv run splunk-crawl --full`** — rebuilds chunks for all ~8,946 documents and re-embeds (chunked docs get chunk-level embeddings). Estimated runtime: hours for embedding pass.
+- [x] **Run `uv run splunk-crawl --full`** — completed 2026-04-20; chunks rebuilt and embeddings generated for all sources.
 
 ---
 
-## 🟡 Priority 2 — Public release distribution (Phase 2)
+## 🟡 Priority 2 — Public release distribution (Phase 2) ✅ Complete
 
-The intended distribution model for public GitHub use:
-
-- [ ] **`src/splunk_docs_mcp/setup.py`** — `splunk-setup` command (download pre-built DB from GitHub Releases)
-- [ ] **`pyproject.toml`** — add `splunk-setup = "splunk_docs_mcp.setup:main"` to `[project.scripts]`
-- [ ] **`.github/workflows/crawl-and-release.yml`** — weekly cron + `workflow_dispatch`; crawl + publish DB as release asset
-- [ ] **README update** — replace crawl step with `uv run splunk-setup`; add data freshness note
-
-See PLAN.md "Phase 2" section for full implementation details.
+- [x] **`src/splunk_docs_mcp/setup.py`** — `splunk-setup` command (download pre-built DB from GitHub Releases)
+- [x] **`pyproject.toml`** — `splunk-setup = "splunk_docs_mcp.setup:main"` added to `[project.scripts]`
+- [x] **`.github/workflows/crawl-and-release.yml`** — weekly cron (Sun 02:00 UTC) + `workflow_dispatch`; crawl + publish DB as release asset via `softprops/action-gh-release@v2`
+- [x] **README rewrite** — audience: Splunk practitioners; 4-step setup (clone → sync → splunk-setup → MCP config); limitations section; tool reference; data freshness; building locally
 
 ---
 
@@ -47,6 +43,7 @@ See PLAN.md "Phase 2" section for full implementation details.
 - [ ] **SPL examples library** — `spl_examples` table + `search_spl` MCP tool (schema stub already in `db.py`)
 - [ ] **Multi-version crawling** — add `version` filter parameter to `search_docs` (comment marks where); update `config.py` with additional version entries
 - [ ] **Cross-version embedding reuse** — copy embeddings by `content_hash` when a new version shares pages with the old, avoiding re-encoding unchanged content
+- [ ] **Investigate cross-source deduplication (Enterprise vs Cloud overlap)** — many topics exist as near-identical pages under both `splunk-enterprise` and `splunk-cloud` URLs; investigate whether content-hash matching across sources could reduce DB size and search noise (e.g. merge into a single row tagged with multiple sources, or suppress lower-scoring duplicate in search results)
 
 ---
 
