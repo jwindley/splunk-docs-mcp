@@ -231,12 +231,32 @@ def _embed_pass(args: argparse.Namespace, sources: list[CrawlSource]) -> None:
         logger.info("All documents already have embeddings — skipping embed pass.")
         return
 
+    # Reuse embeddings for documents whose content matches an already-encoded row.
+    # This avoids re-encoding identical pages on incremental re-crawls and across
+    # sources/versions once multi-version crawling is active.
+    to_encode: list = []
+    reused = 0
+    for doc in docs:
+        existing = db_module.get_embedding_by_hash(conn, doc["content_hash"])
+        if existing is not None:
+            db_module.update_embedding(conn, doc["id"], existing)
+            reused += 1
+        else:
+            to_encode.append(doc)
+    if reused:
+        conn.commit()
+        logger.info("Reused %d embedding(s) from matching content_hash.", reused)
+
+    if not to_encode:
+        logger.info("Embedding pass complete — all %d via hash reuse.", reused)
+        return
+
     logger.info("Loading embedding model (all-MiniLM-L6-v2)…")
     from sentence_transformers import SentenceTransformer  # noqa: PLC0415
     model = SentenceTransformer("all-MiniLM-L6-v2")
 
-    logger.info("Generating embeddings for %d documents…", len(docs))
-    texts = [f"{doc['title']}\n\n{doc['content_md']}" for doc in docs]
+    logger.info("Generating embeddings for %d documents…", len(to_encode))
+    texts = [f"{doc['title']}\n\n{doc['content_md']}" for doc in to_encode]
 
     # Batch encode — sentence-transformers handles padding/truncation internally.
     # show_progress_bar gives a tqdm bar for longer runs.
@@ -247,11 +267,14 @@ def _embed_pass(args: argparse.Namespace, sources: list[CrawlSource]) -> None:
         show_progress_bar=True,
     )
 
-    for doc, emb in zip(docs, embeddings):
+    for doc, emb in zip(to_encode, embeddings):
         db_module.update_embedding(conn, doc["id"], emb.astype("float32").tobytes())
 
     conn.commit()
-    logger.info("Embedding pass complete — %d documents embedded.", len(docs))
+    logger.info(
+        "Embedding pass complete — %d encoded, %d reused from hash.",
+        len(to_encode), reused,
+    )
 
 
 def main() -> None:

@@ -45,10 +45,10 @@ _Last updated: 2026-04-20 (Phase 3 planned)_
 
 ## 🟢 Priority 3 — Tier 3: Scalability (item 6 before item 7; item 1 before item 7)
 
-### Item 6: Embedding reuse via content_hash
-- [ ] Add `CREATE INDEX IF NOT EXISTS idx_documents_content_hash ON documents(content_hash)` to `init_db()` in `db.py`
-- [ ] Add `get_embedding_by_hash(conn, content_hash) -> bytes | None` helper to `db.py`
-- [ ] Modify `_embed_pass()` in `cli.py`: for each document needing an embedding, check `get_embedding_by_hash()` first; copy if found; only batch-encode documents with no matching hash
+### Item 6: Embedding reuse via content_hash ✅
+- [x] Add `CREATE INDEX IF NOT EXISTS idx_documents_content_hash ON documents(content_hash)` to `init_db()` in `db.py`
+- [x] Add `get_embedding_by_hash(conn, content_hash) -> bytes | None` helper to `db.py`
+- [x] Modify `_embed_pass()` in `cli.py`: for each document needing an embedding, check `get_embedding_by_hash()` first; copy if found; only batch-encode documents with no matching hash
 
 ### Item 1: GHA matrix parallelisation + `merge_dbs()`
 - [ ] Create `src/splunk_docs_mcp/merge.py` with `merge_dbs(source_db_paths: list[Path], output_path: Path)`:

@@ -177,6 +177,9 @@ def init_db(conn: sqlite3.Connection) -> None:
         )
     except sqlite3.OperationalError:
         pass
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_documents_content_hash ON documents(content_hash)"
+    )
     conn.commit()
 
 
@@ -190,6 +193,20 @@ def get_content_hash(conn: sqlite3.Connection, url: str) -> str | None:
         "SELECT content_hash FROM documents WHERE url = ?", (url,)
     ).fetchone()
     return row["content_hash"] if row else None
+
+
+def get_embedding_by_hash(conn: sqlite3.Connection, content_hash: str) -> bytes | None:
+    """Return a stored embedding BLOB for any row sharing content_hash, or None.
+
+    Used by the embed pass to copy an existing embedding rather than re-encoding
+    identical content — works within a source (incremental re-crawl) and across
+    sources/versions (once multi-version crawling is active).
+    """
+    row = conn.execute(
+        "SELECT embedding FROM documents WHERE content_hash = ? AND embedding IS NOT NULL LIMIT 1",
+        (content_hash,),
+    ).fetchone()
+    return row["embedding"] if row else None
 
 
 def upsert_document(conn: sqlite3.Connection, doc: dict) -> None:
