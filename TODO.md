@@ -31,6 +31,7 @@ _Last updated: 2026-04-21 (Phase 3 complete except Item 9)_
 
 ## ⚫ Priority 3 — Future / optional
 
+- [ ] **'Dead' URL status for permanent 404s** — currently URLs that 404 are stored as `status='failed'` and retried on every run. Adding a `'dead'` status (set when HTTP 404 is received) would exclude those URLs from `get_failed_urls()` and `get_visited_urls()`, stopping them being retried forever. Affects ~22 section-seed URLs per run across Enterprise/Cloud sources.
 - [ ] **Weekly full re-fetch for content change detection** — currently incremental mode skips pages already in `crawl_state` as 'fetched', so updated docs are never re-indexed. Options:
   - Use sitemap `<lastmod>` in normal (non-`--full`) mode: re-queue pages where `lastmod > last_crawl_timestamp` (already fetched from sitemap; just need to remove the `if full and` guard in `crawler.py`). Works for Lantern; no help for sources without sitemaps.
   - Add a `--rehash` mode: re-fetch all pages and compare HTML hash, re-extract only on change, skip re-embedding if content unchanged. More thorough but slower than lastmod.
