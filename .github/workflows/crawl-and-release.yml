@@ -56,12 +56,14 @@ jobs:
         run: uv run splunk-crawl --sources ${{ matrix.source }} --db data/${{ matrix.source }}.db
 
       - name: Save per-source DB cache
+        if: always()
         uses: actions/cache/save@v4
         with:
           path: data/${{ matrix.source }}.db
           key: splunk-db-${{ matrix.source }}-${{ github.run_id }}
 
       - name: Upload per-source DB artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: db-${{ matrix.source }}
