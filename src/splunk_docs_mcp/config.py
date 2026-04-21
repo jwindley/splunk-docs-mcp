@@ -90,7 +90,6 @@ _ES_SECTIONS = [
     "user-guide",
     "troubleshoot",
     "release-notes-and-resources",
-    "enterprise-security-editions",
 ]
 
 # Enterprise URL structure: /en/splunk-enterprise/{section}/{manual}/{version}/...
@@ -226,48 +225,6 @@ PHASE1_SOURCES: list[CrawlSource] = [
             ],
         ],
         url_prefix="https://help.splunk.com/en/splunk-enterprise-security-8/",
-        blocked_path_prefixes=_HELP_BLOCKED,
-    ),
-    CrawlSource(
-        source_id="enterprise-security-8-3",
-        display_name="Splunk Enterprise Security 8.3",
-        version="8.3",
-        seed_urls=[
-            "https://help.splunk.com/en/splunk-enterprise-security-8",
-            *[
-                f"https://help.splunk.com/en/splunk-enterprise-security-8/{s}/8.3"
-                for s in _ES_SECTIONS
-            ],
-        ],
-        url_prefix="https://help.splunk.com/en/splunk-enterprise-security-8/",
-        blocked_path_prefixes=_HELP_BLOCKED,
-    ),
-    CrawlSource(
-        source_id="splunk-enterprise-10-1",
-        display_name="Splunk Enterprise 10.1",
-        version="10.1",
-        seed_urls=[
-            "https://help.splunk.com/en/splunk-enterprise/",
-            *[
-                f"https://help.splunk.com/en/splunk-enterprise/{s}/10.1"
-                for s in _ENTERPRISE_SECTIONS
-            ],
-        ],
-        url_prefix="https://help.splunk.com/en/splunk-enterprise/",
-        blocked_path_prefixes=_HELP_BLOCKED,
-    ),
-    CrawlSource(
-        source_id="splunk-cloud-10-2",
-        display_name="Splunk Cloud Platform 10.2",
-        version="10.2",
-        seed_urls=[
-            "https://help.splunk.com/en/splunk-cloud-platform/",
-            *[
-                f"https://help.splunk.com/en/splunk-cloud-platform/{s}/10.2"
-                for s in _CLOUD_SECTIONS
-            ],
-        ],
-        url_prefix="https://help.splunk.com/en/splunk-cloud-platform/",
         blocked_path_prefixes=_HELP_BLOCKED,
     ),
     CrawlSource(

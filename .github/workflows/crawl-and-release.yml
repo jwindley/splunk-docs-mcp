@@ -22,12 +22,9 @@ jobs:
         source:
           - enterprise-security
           - enterprise-security-8-4
-          - enterprise-security-8-3
           - admin-manual
           - splunk-enterprise
-          - splunk-enterprise-10-1
           - splunk-cloud
-          - splunk-cloud-10-2
           - lantern
 
     runs-on: ubuntu-latest
@@ -100,12 +97,9 @@ jobs:
           uv run splunk-merge \
             data/enterprise-security.db \
             data/enterprise-security-8-4.db \
-            data/enterprise-security-8-3.db \
             data/admin-manual.db \
             data/splunk-enterprise.db \
-            data/splunk-enterprise-10-1.db \
             data/splunk-cloud.db \
-            data/splunk-cloud-10-2.db \
             data/lantern.db \
             --output data/splunk_docs.db
 
@@ -125,10 +119,10 @@ jobs:
             Automated weekly crawl of Splunk documentation.
 
             **Sources indexed:**
-            - Splunk Enterprise Security 8.3, 8.4, 8.5
+            - Splunk Enterprise Security 8.4, 8.5
             - Splunk Configuration File Reference 10.2
-            - Splunk Enterprise 10.1, 10.2
-            - Splunk Cloud Platform 10.2, 10.3.2512
+            - Splunk Enterprise 10.2
+            - Splunk Cloud Platform 10.3.2512
             - Splunk Lantern (current)
 
             **Downloads:**

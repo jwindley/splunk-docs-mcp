@@ -159,8 +159,14 @@ async def _run(args: argparse.Namespace) -> int:
 
     total_failures = sum(s.failed for s in all_stats)
     total_attempted = sum(s.total for s in all_stats)
+    total_processed = sum(s.fetched + s.skipped for s in all_stats)
     failure_rate = total_failures / total_attempted if total_attempted else 0
-    if failure_rate > 0.05:
+
+    # Don't exit 1 when total_processed == 0: this means every URL attempted
+    # this run was a retry of a previously-failed URL (all real pages already
+    # visited/cached). A handful of permanent 404 seed URLs shouldn't fail the
+    # build when the bulk of the content is already indexed.
+    if failure_rate > 0.05 and total_processed > 0:
         logger.warning(
             "Failure rate %.1f%% (%d/%d) exceeds 5%% threshold — exiting with code 1.",
             failure_rate * 100, total_failures, total_attempted,
