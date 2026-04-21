@@ -25,7 +25,9 @@ jobs:
           - enterprise-security-8-3
           - admin-manual
           - splunk-enterprise
+          - splunk-enterprise-10-1
           - splunk-cloud
+          - splunk-cloud-10-2
           - lantern
 
     runs-on: ubuntu-latest
@@ -101,7 +103,9 @@ jobs:
             data/enterprise-security-8-3.db \
             data/admin-manual.db \
             data/splunk-enterprise.db \
+            data/splunk-enterprise-10-1.db \
             data/splunk-cloud.db \
+            data/splunk-cloud-10-2.db \
             data/lantern.db \
             --output data/splunk_docs.db
 
