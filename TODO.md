@@ -31,6 +31,10 @@ _Last updated: 2026-04-21 (Phase 3 complete except Item 9)_
 
 ## ⚫ Priority 3 — Future / optional
 
+- [ ] **Weekly full re-fetch for content change detection** — currently incremental mode skips pages already in `crawl_state` as 'fetched', so updated docs are never re-indexed. Options:
+  - Use sitemap `<lastmod>` in normal (non-`--full`) mode: re-queue pages where `lastmod > last_crawl_timestamp` (already fetched from sitemap; just need to remove the `if full and` guard in `crawler.py`). Works for Lantern; no help for sources without sitemaps.
+  - Add a `--rehash` mode: re-fetch all pages and compare HTML hash, re-extract only on change, skip re-embedding if content unchanged. More thorough but slower than lastmod.
+  - Simplest: run weekly cron with `--full` but skip re-embedding when hash unchanged (currently `--full` clears all embeddings unconditionally — could add `--full-crawl-only` that re-fetches without clearing embeddings).
 - [ ] **SPL examples library** — `spl_examples` table + `search_spl` MCP tool (schema stub already in `db.py`)
 - [ ] **Multi-version expansion** — add more ES or Enterprise versions to `config.py` as needed
 
