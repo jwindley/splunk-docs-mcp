@@ -30,19 +30,18 @@ The primary use case is giving Claude (via MCP) accurate, version-specific Splun
 
 ---
 
-## Distribution Model (Phase 2 — planned, not started)
+## Distribution Model (Phase 2 — complete)
 
-The goal is a public GitHub repo where users never run the crawl:
-
-- **GitHub Actions** crawls weekly + on `workflow_dispatch`, publishes `splunk_docs.db` as a GitHub Release asset (`data-YYYY-MM-DD` tag)
-- **`splunk-setup` CLI command** (`src/splunk_docs_mcp/setup.py`) downloads the latest Release asset to `data/splunk_docs.db`
-- User flow becomes: `git clone` → `uv sync` → `uv run splunk-setup` → configure MCP → done
-- See PLAN.md "Phase 2" for full implementation details
+- **GitHub Actions** crawls weekly (Sunday 02:00 UTC) + `workflow_dispatch`; 9-job matrix (one per source); aggregation job merges + exports + publishes release
+- **Release assets:** `splunk_docs.db` (full merged), `splunk_docs_<source>.db` (per-source), `manifest.json`
+- **`splunk-setup`** downloads latest release asset to `data/splunk_docs.db`
+- **`splunk-merge`** combines per-source DBs; `--export-sources` generates per-source files + `manifest.json`
+- User flow: `git clone` → `uv sync` → `uv run splunk-setup` → configure MCP → done
 
 ## Future Scope (do NOT build yet)
 
-- **SPL examples library** — curated JSON → separate `spl_examples` DB table + `search_spl` MCP tool (stub already in `db.py`)
-- **Multi-version crawling** — `version` column already in schema; `search_docs` has a `# Future: add version filter here` comment marking where to add a filter parameter
+- **SPL examples library** — curated JSON → separate `spl_examples` DB table + `search_spl` MCP tool (schema stub already in `db.py`)
+- **`splunk-setup` version selection UI (Item 9)** — interactive menu to download only selected sources; falls back to monolithic DB for backward compat
 
 ---
 
@@ -79,12 +78,17 @@ splunk-docs-mcp/
 ├── src/
 │   └── splunk_docs_mcp/
 │       ├── __init__.py
-│       ├── config.py      ← CrawlSource dataclass + all active source definitions (5 sources)
-│       ├── db.py          ← SQLite schema, connection factory, upsert/query helpers
+│       ├── config.py      ← CrawlSource dataclass + all 9 active source definitions
+│       ├── db.py          ← SQLite schema, connection factory, all query/write helpers
 │       ├── extractor.py   ← HTML→Markdown + URL metadata parsing
-│       ├── crawler.py     ← async BFS crawler
+│       ├── crawler.py     ← async BFS crawler + retry pass
 │       ├── cli.py         ← crawl CLI entry point (argparse)
-│       └── server.py      ← MCP server + 6 tool definitions
+│       ├── merge.py       ← splunk-merge CLI: merge_dbs() + export_sources()
+│       ├── server.py      ← MCP server + 6 tool definitions
+│       └── setup.py       ← splunk-setup: download pre-built DB from GitHub Releases
+├── tests/
+│   ├── test_extractor.py  ← parse_url_metadata() tests (18)
+│   └── test_crawler.py    ← _normalise_url, _is_target_url, _section_from_url tests (18)
 └── data/
     ├── .gitkeep
     └── docs/              ← Markdown files written at crawl time (gitignored)
@@ -96,11 +100,16 @@ splunk-docs-mcp/
 
 ```bash
 uv run splunk-mcp                                                           # start MCP server (stdio)
-uv run splunk-crawl                                                         # crawl all sources + embed
+uv run splunk-setup                                                         # download pre-built DB from latest release
+uv run splunk-crawl                                                         # crawl all 9 sources + chunk + embed + dedup
 uv run splunk-crawl --sources enterprise-security                           # single source
 uv run splunk-crawl --sources enterprise-security --section user-guide      # single section (dev/test)
 uv run splunk-crawl --sources lantern --section Splunk_Success_Framework    # Lantern test section
 uv run splunk-crawl --full                                                  # re-extract + re-chunk + re-embed everything
+uv run splunk-crawl --rechunk                                               # rebuild chunks only (no re-crawl)
+uv run splunk-merge data/a.db data/b.db --output data/splunk_docs.db       # merge per-source DBs
+uv run splunk-merge --export-sources data/export/ --db data/splunk_docs.db # export per-source DBs + manifest.json
+uv run pytest tests/                                                        # run test suite (36 tests)
 ```
 
 ---
@@ -120,8 +129,8 @@ Everything downstream of `config.py` is source-agnostic. Adding a new crawl sour
 ### `source` + `version` columns on every row
 Every document row in the DB stores its source ID and product version. Search results always include this metadata so it is always clear which version of which product a result is from.
 
-### No version filter parameter on `search_docs` (Phase 1)
-Phase 1 indexes exactly one version per source. A version filter parameter would add complexity with no benefit. The comment `# Future: add version filter here` marks where to add it in Phase 2.
+### Version filter on search tools
+`search_docs()` and `search_docs_semantic_from_matrix()` accept `version: str | None`. When set, it adds `AND d.version = ?` to the query. **Critically, the `is_duplicate = 0` dedup filter is bypassed when `version` is specified** — version-targeted queries must see all docs for that version regardless of whether identical content exists in a higher-priority source.
 
 ### Module-level DB singleton in `server.py`
 DB connection opened once on first use, reused across all tool calls. Simpler and more reliable than MCP framework lifespan API for this use case.
@@ -143,12 +152,15 @@ Short documents (≤ 8,000 chars) are embedded whole; long documents are embedde
 
 ```sql
 documents          -- one row per page or chunk; url UNIQUE
-                   --   has_chunks INTEGER DEFAULT 0  (1 = split into chunks; exclude from search)
-                   --   chunk_of   TEXT               (NULL = not a chunk; parent URL for chunk rows)
-                   --   chunk_index INTEGER            (0-based position within parent)
-                   --   embedding  BLOB               (384-dim float32; NULL for has_chunks=1 parents)
+                   --   has_chunks    INTEGER DEFAULT 0  (1 = split into chunks; exclude from search)
+                   --   chunk_of      TEXT               (NULL = not a chunk; parent URL for chunks)
+                   --   chunk_index   INTEGER            (0-based position within parent)
+                   --   embedding     BLOB               (384-dim float32; NULL for has_chunks=1 parents)
+                   --   is_duplicate  INTEGER DEFAULT 0  (1 = same content_hash exists in higher-priority source)
 documents_fts      -- FTS5 virtual table (content=documents); auto-synced via triggers
 crawl_state        -- per-URL crawl status; used by crawler only, not MCP server
+                   --   status: 'fetched' | 'skipped' | 'failed'
+                   --   failed URLs excluded from get_visited_urls() so they retry on next incremental crawl
 ```
 
 DB file: `data/splunk_docs.db` (gitignored — regenerated by crawl)
@@ -200,6 +212,14 @@ The full decision tree text lives in the `instructions=` argument to `FastMCP(..
 ### Version segment filtering in `_is_target_url`
 The URL prefix `splunk-enterprise-security-8/` matches all versions (8.0, 8.1, 8.2 … 8.5). The crawler extracts version-number path segments from the URL and rejects any URL where a version segment is present but doesn't match `source.version`. This prevents cross-version nav links from pulling in older ES docs. The admin-manual source is unaffected (its version is baked into the `url_prefix`).
 
+### Crawler retry behaviour
+Two layers of retry for transient failures:
+1. **Per-request retry** (`_process_url`): 3 attempts with 2/4/8 s delays for `TimeoutException`, `ConnectError`, `ReadError`, and 5xx responses.
+2. **Post-BFS retry pass** (`crawl_source`): after the main BFS finishes, all URLs still in `crawl_state` with `status='failed'` are re-queued and attempted once more. Recovers from brief outages mid-crawl.
+3. **Next incremental run**: `get_visited_urls()` excludes `status='failed'` rows, so pages that fail all retries are automatically re-attempted on the next crawl without `--full`.
+
+**Exit code policy:** `splunk-crawl` exits 1 only if the failure rate exceeds 5% of total pages attempted. A handful of transient failures exits 0.
+
 ### When to use `--full`
 `crawl_state` records every attempted URL. If a crawl run contained bugs (e.g. malformed URLs were visited and recorded as fetched/failed), a subsequent incremental crawl will skip those URLs. Always use `uv run splunk-crawl --full` after fixing crawler URL-handling bugs to force a clean re-crawl.
 
@@ -215,8 +235,8 @@ The URL prefix `splunk-enterprise-security-8/` matches all versions (8.0, 8.1, 8
 ## Conventions to Follow
 
 - **Never modify crawler, DB, or server code to handle a new source** — only `config.py`
-- **Never add a version filter to `search_docs` in Phase 1** — comment marks where to add it later
 - **Always store version metadata** in every document row
+- **Version filter bypasses dedup** — `is_duplicate=0` filter is skipped when `version=` is set; this is intentional so version-specific queries see all docs
 - **Update `PLAN.md`, `TODO.md`, and `CLAUDE.md`** when tasks are completed or new ones are discovered — these three files are the only project state files; do NOT create separate plan files
 - **Update the plan before coding** when requirements change — stop, update plan, get approval, then code
 - **`--section` flag** is the intended way to test the crawl pipeline quickly during development

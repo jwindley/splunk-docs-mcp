@@ -1,12 +1,14 @@
 # Build Plan — splunk-docs-mcp
 
-_Last updated: 2026-04-20 (Phase 3 — Items 1 and 7 complete)_
+_Last updated: 2026-04-21 (Phase 3 complete except Item 9; GHA first run fixed)_
 
 ---
 
 ## Current Status
 
-**Phase 1 and Phase 2 are complete.** All crawls done (~8,946 pages across 5 sources), all 6 tools working, chunking and embeddings applied, and public distribution via GitHub Releases implemented.
+**Phase 1, 2, and most of Phase 3 are complete.** All Phase 3 Tier 1–3 items and most Tier 4 items are done. The GHA workflow ran for the first time and produced a failure (fixed — see below). A second GHA run is needed to produce the first public release.
+
+**One item outstanding:** Item 9 (splunk-setup version selection UI). Deferred due to token budget; carries to next session.
 
 ---
 
@@ -14,37 +16,56 @@ _Last updated: 2026-04-20 (Phase 3 — Items 1 and 7 complete)_
 
 | File | Status | Notes |
 |------|--------|-------|
-| `pyproject.toml` | ✅ Done | Deps, entry points (`splunk-mcp`, `splunk-crawl`, `splunk-setup`) |
-| `.gitignore` | ✅ Done | Python-appropriate; `data/docs/` and `data/*.db` gitignored |
+| `pyproject.toml` | ✅ Done | Deps + entry points: `splunk-mcp`, `splunk-crawl`, `splunk-setup`, `splunk-merge` |
+| `.gitignore` | ✅ Done | |
 | `.python-version` | ✅ Done | `3.12` |
-| `src/splunk_docs_mcp/__init__.py` | ✅ Done | Empty package init |
-| `src/splunk_docs_mcp/config.py` | ✅ Done | `CrawlSource` dataclass (+ `crawl_delay`, `max_concurrency`, `blocked_path_prefixes`), `PHASE1_SOURCES` (5 active sources), `SOURCES_BY_ID`, paths, headers |
-| `src/splunk_docs_mcp/db.py` | ✅ Done | Schema, connection factory, FTS5 + triggers, all query helpers, embedding helpers |
-| `src/splunk_docs_mcp/extractor.py` | ✅ Done | trafilatura primary, BS4+markdownify fallback, `parse_url_metadata`, `write_markdown_file` |
-| `src/splunk_docs_mcp/server.py` | ✅ Done | FastMCP app + 6 tools; eager model load at startup; explicit decision-tree instructions |
-| `src/splunk_docs_mcp/cli.py` | ✅ Done | argparse with `--sources`, `--section`, `--concurrency`, `--delay`, `--full`, `--db`, `--docs-dir`, `--verbose`; post-crawl embedding pass |
-| `src/splunk_docs_mcp/crawler.py` | ✅ Done | BFS crawler; per-source `crawl_delay`, `max_concurrency`, `blocked_path_prefixes`; redirect-aware link extraction; version-segment filtering |
-| `data/.gitkeep` | ✅ Done | |
-| `data/docs/.gitkeep` | ✅ Done | |
-| `CLAUDE.md` / `PLAN.md` / `TODO.md` | ✅ Done | Session context files |
-| `README.md` | ✅ Done | Setup and usage docs for end users; rewritten for Phase 2 (splunk-setup flow) |
-| `src/splunk_docs_mcp/setup.py` | ✅ Done | `splunk-setup` command; streams download from GitHub Releases with progress |
-| `.github/workflows/crawl-and-release.yml` | ✅ Done | Weekly cron + workflow_dispatch; crawl all sources + publish DB as release asset |
+| `src/splunk_docs_mcp/__init__.py` | ✅ Done | |
+| `src/splunk_docs_mcp/config.py` | ✅ Done | 9 active sources (ES 8.3/8.4/8.5, admin-manual 10.2, Enterprise 10.1/10.2, Cloud 10.2/10.3.2512, Lantern) |
+| `src/splunk_docs_mcp/db.py` | ✅ Done | Schema + all helpers; `is_duplicate` column; `run_dedup_pass()`; `merge_source_db()`; `get_failed_urls()`; version filter on search functions |
+| `src/splunk_docs_mcp/extractor.py` | ✅ Done | |
+| `src/splunk_docs_mcp/server.py` | ✅ Done | 6 tools; `version=` filter on `search_docs` + `search_docs_semantic`; 9-source instructions |
+| `src/splunk_docs_mcp/cli.py` | ✅ Done | `--delay-jitter`; `_dedup_pass()`; exit 1 only if failure rate >5% |
+| `src/splunk_docs_mcp/crawler.py` | ✅ Done | Retry pass after BFS; failed URLs excluded from visited set; `--delay-jitter` support |
+| `src/splunk_docs_mcp/merge.py` | ✅ Done | `merge_dbs()`, `export_sources()`, `splunk-merge` CLI |
+| `src/splunk_docs_mcp/setup.py` | ✅ Done | `splunk-setup` downloads latest release asset |
+| `tests/test_extractor.py` | ✅ Done | 18 tests for `parse_url_metadata()` |
+| `tests/test_crawler.py` | ✅ Done | 18 tests for `_normalise_url`, `_is_target_url`, `_section_from_url` |
+| `.github/workflows/crawl-and-release.yml` | ✅ Done | 9-job matrix; `continue-on-error`; `if: always()` on cache/artifact steps |
+| `README.md` | ✅ Done | Rewritten: why it exists, vibe-coded, any MCP client, setup tips, all 9 sources |
 
 ---
 
 ## What Works
 
-- **MCP server:** `uv run splunk-mcp` starts on stdio, all 6 tools registered and responding correctly
-- **BM25 keyword search:** `search_docs` — FTS5, BM25 ranked, title weighted 10×, snippets; 5–38 ms
-- **Semantic search:** `search_docs_semantic` — all-MiniLM-L6-v2 embeddings, in-process cosine similarity; model eagerly loaded at startup (no first-call penalty)
-- **Crawl — enterprise-security:** 743 pages indexed, all 6 ES sections populated, ES 8.5 only (version filter working)
-- **Crawl — admin-manual:** 216 pages indexed
-- **Crawl — lantern (test section):** 92 pages indexed (`Splunk_Success_Framework`); rate limiting (5 s/req, concurrency=1) working correctly; `robots.txt` blocked paths respected
-- **Incremental re-crawl:** unchanged pages skipped via SHA-256 hash comparison
-- **SQLite WAL mode:** MCP server can read while crawler writes
-- **Embeddings:** generated post-crawl for all indexed pages; stored as 384-dim float32 BLOBs
-- **`--section` dev flag:** limits crawl to one section for fast pipeline testing
+- **MCP server:** all 6 tools; `version=` filter on both search tools; 9-source instructions
+- **Multi-version search:** `search_docs(query, version="8.4")` filters correctly across sources
+- **Cross-source dedup:** `is_duplicate=1` suppresses duplicate content in general searches; bypassed when `version=` is set so version-specific queries see all docs
+- **BM25 keyword search:** FTS5, BM25 ranked, title weighted 10×, snippets
+- **Semantic search:** all-MiniLM-L6-v2 embeddings, matrix cached at startup
+- **Crawler retry pass:** after main BFS, failed URLs are re-attempted once; recovers transient timeouts/5xx
+- **Incremental re-crawl:** failed URLs now excluded from visited set so they're retried on next run
+- **`splunk-merge`:** merges per-source DBs + exports per-source files + `manifest.json`
+- **36 passing tests:** `parse_url_metadata`, `_normalise_url`, `_is_target_url`, `_section_from_url`
+- **GHA workflow:** 9-job matrix, per-source DB caching, `continue-on-error`, `if: always()` safety net
+
+---
+
+## GHA First Run (2026-04-21) — What Happened and Fixes Applied
+
+**What happened:**
+- Crawl completed successfully (~9,452 pages, 46,299 embeddings)
+- 35 pages failed (0.4%) due to transient network errors
+- `cli.py` exited with code 1 for any non-zero failures
+- GHA skipped the cache-save and upload-artifact steps (they ran after the failed step)
+- `merge-and-release` job had no artifacts → no release published
+
+**Fixes applied (all committed and pushed):**
+1. `cli.py`: exit 1 only if failure rate >5% of total pages — 0.4% now exits 0
+2. `crawler.py`: retry pass after main BFS re-attempts all failed URLs once
+3. `db.py`: `get_visited_urls()` excludes `status='failed'` rows — failed pages retried on next incremental run
+4. `crawl-and-release.yml`: `continue-on-error: true` on crawl jobs; `if: always()` on cache-save and artifact-upload steps
+
+**Action required:** Trigger another `workflow_dispatch` run to produce the first release.
 
 ---
 
@@ -52,93 +73,40 @@ _Last updated: 2026-04-20 (Phase 3 — Items 1 and 7 complete)_
 
 | Item | Status |
 |------|--------|
-| Full Lantern crawl | ✅ Done — 1,284 pages, 1,192 embeddings generated |
-| Full `splunk-enterprise` crawl | ✅ Done — 3,513 pages |
-| Full `splunk-cloud` crawl | ✅ Done — 2,658 pages |
-| Phase 2 — public distribution via GitHub Releases | ✅ Done (2026-04-20) |
+| Item 9 — `splunk-setup` version selection UI | ❌ Not started |
+| GHA second run (produce first release) | ⏳ Needs manual trigger |
+| ES crawl failure investigation (2 specific URLs) | ❌ Not investigated |
+| 4 new sources first crawl (ES 8.3/8.4, Enterprise 10.1, Cloud 10.2) | ⏳ Will happen on next GHA run |
 
 ---
 
-## Bugs Fixed (2026-04-18) — both in production code
+## Phase 3 — Improvements Status
 
-### Bug 1 — Crawler used pre-redirect URL as urljoin base (`crawler.py`)
-**Symptom:** All ES sections except `user-guide` had only 1 page in the DB — the seed URL itself.  
-**Root cause:** Section seed URLs redirect to a deeper page. The HTML there uses relative hrefs designed to be resolved against the redirect destination, but `_process_url` was passing the original pre-redirect URL to `urljoin()`, producing doubled/malformed paths that 404.  
-**Fix:** Capture `final_url = _normalise_url(str(resp.url)) or url` after the response and pass it to `_extract_links()` instead of `url`. Also pre-mark `final_url` as visited to prevent double-processing.
+### Tier 1 — Foundational ✅ All done
+- **Item 10** ✅ — `crawled_at` in search results
+- **Item 4** ✅ — Exponential backoff retry (3 attempts, 2/4/8 s)
+- **Item 3** ✅ — Embedding matrix cache at startup
 
-### Bug 2 — Version filter missing; crawler indexed ES 8.0–8.4 alongside 8.5 (`crawler.py`)
-**Symptom:** Crawl log showed fetches of `/install/8.0/`, `/administer/8.1/` etc. — wrong versions.  
-**Root cause:** The `url_prefix` filter `splunk-enterprise-security-8/` matches all ES versions. Cross-version nav links in the HTML were being followed.  
-**Fix:** In `_is_target_url()`, extract version-number path segments from the URL after the prefix. If any version segments are present and none match `source.version`, reject the URL.
+### Tier 2 — Quality ✅ All done
+- **Item 8** ✅ — Smart chunking (heading → paragraph → character fallback) + `--rechunk`
+- **Item 2** ✅ — Lantern sitemap seeding + `<lastmod>` skip + BFS fallback
 
----
+### Tier 3 — Scalability ✅ All done
+- **Item 6** ✅ — Embedding reuse via `content_hash`
+- **Item 1** ✅ — GHA matrix (9 parallel jobs) + `merge_dbs()` + `splunk-merge` CLI
+- **Item 7** ✅ — Multi-version crawling (4 new sources) + `version=` filter on search tools
 
-## Crawl Results
-
-```
-[enterprise-security] stored=1275  (2026-04-19/20, full crawl)
-[admin-manual]        stored=216   (2026-04-18)
-[splunk-enterprise]   stored=3513  (2026-04-19/20, full crawl)
-[splunk-cloud]        stored=2658  (2026-04-19/20, full crawl)
-[lantern]             stored=1284  (2026-04-20, full crawl, 1192 embeddings generated)
-TOTAL                 8946
-```
-
-Page counts from `SELECT source, COUNT(*) FROM documents GROUP BY source` on 2026-04-20.
+### Tier 4 — Polish (partial)
+- **Item 5** ✅ — Cross-source deduplication (`is_duplicate` column; version-bypass logic)
+- **Item 9** ❌ — `splunk-setup` version selection UI (not started; next session)
 
 ---
 
-## Fixes Applied (2026-04-20)
+## Item 9 — splunk-setup version selection UI (next session)
 
-### Fix 1 — Document chunking
-Documents over 8,000 characters are now split into 1,500-character overlapping chunks (200-char overlap) stored as separate rows in `documents` with `chunk_of = parent_url` and `chunk_index`.
-
-- FTS5 and embeddings now index at chunk level → search surfaces the relevant section, not the whole document.
-- Parent rows are marked `has_chunks = 1` and excluded from search queries.
-- `get_page(url)` reassembles all chunks transparently; if called with a chunk URL it redirects to the parent.
-- A new `_chunk_pass()` in `cli.py` runs after each crawl (before the embed pass). With `--full` it deletes and rebuilds all chunks.
-- Schema additions: `has_chunks INTEGER DEFAULT 0`, `chunk_of TEXT`, `chunk_index INTEGER` + index on `chunk_of`. Added via `ALTER TABLE` migrations — safe for existing DBs.
-
-### Fix 2 — Confidence signalling in tool descriptions
-`search_docs` and `search_docs_semantic` docstrings now explicitly instruct Claude to state uncertainty when retrieved content does not directly address the question. The `FastMCP(instructions=...)` block now includes a mandatory CONFIDENCE AND UNCERTAINTY section with the same guidance. Also corrected stale `source=` option lists across all five tool parameter descriptions.
-
----
-
-## Next Steps
-
-See `TODO.md` Phase 3 for the full prioritised work queue.
-
----
-
-## Phase 2 — Public release distribution ✅ Complete (2026-04-20)
-
-- GitHub Actions weekly cron + `workflow_dispatch` publishes `splunk_docs.db` as a release asset
-- `splunk-setup` CLI downloads the latest release asset; atomic write; progress bar
-- User flow: `git clone` → `uv sync` → `uv run splunk-setup` → configure MCP → done
-
----
-
-## Phase 3 — Improvements (planned 2026-04-20)
-
-Ten improvements across four tiers. See `TODO.md` for subtask breakdown.
-
-### Tier 1 — Foundational (no dependencies)
-- **Item 10**: Add `crawled_at` date to `search_docs` and `search_docs_semantic` result dicts (`db.py`)
-- **Item 4**: Exponential backoff retry (3 attempts, 2/4/8 s) in `_process_url()` (`crawler.py`)
-- **Item 3**: Module-level embedding matrix cache in `server.py` loaded once at startup; source pre-filter via numpy boolean indexing. **Note**: restart MCP server after `splunk-crawl` to refresh semantic search index.
-
-### Tier 2 — Quality (independent)
-- **Item 8**: Smart chunking — heading → paragraph → character fallback in `_split_content_smart()`; `--rechunk` CLI flag (`db.py`, `cli.py`)
-- **Item 2**: Lantern sitemap seeding — `sitemap_url` field on `CrawlSource`; `<lastmod>` pre-fetch skip; BFS fallback for sitemap-missing pages. Sitemap confirmed at `lantern.splunk.com/sitemap.xml` (~800 URLs, `<lastmod>` on all entries; sitemap is incomplete — BFS fallback covers remaining ~484 pages).
-
-### Tier 3 — Scalability (item 6 before item 7; item 1 before item 7)
-- **Item 6**: Embedding reuse via `content_hash` — index on `content_hash`; copy embedding from existing row with same hash before encoding (`db.py`, `cli.py`)
-- **Item 1**: ✅ GHA matrix parallelisation — `merge.py` + `merge_source_db()` in `db.py` + `splunk-merge` entry point; GHA workflow rewritten with matrix (5 parallel jobs) + aggregation job; per-source DB caching + per-source export + `manifest.json`
-- **Item 7**: ✅ Multi-version crawling — 4 new `CrawlSource` entries (ES 8.3/8.4, Enterprise 10.1, Cloud 10.2); `version` filter on `search_docs` + `search_docs_semantic`; instructions updated; GHA now 9-job matrix
-
-### Tier 4 — Polish (requires items 1 and 7)
-- **Item 5**: Cross-source deduplication — `is_duplicate INTEGER DEFAULT 0` column; `_dedup_pass()` in `cli.py`; suppress duplicate URLs from FTS and semantic search (`db.py`)
-- **Item 9**: `splunk-setup` version selection UI — `manifest.json` schema; interactive CLI menu or `--all` flag; per-source DB download + merge; `--export-sources` flag on `splunk-merge` (not a separate entry point); backward-compat fallback to monolithic DB
-
-### Future / Phase 4+
-- **SPL examples library** — `spl_examples` table + `search_spl` MCP tool (schema stub already in `db.py`)
+- Define `manifest.json` schema: `{generated_at, total_pages, sources: [{source_id, display_name, version, pages, chunks, file_name, size_bytes}]}` — schema already generated by `splunk-merge --export-sources`
+- Update `setup.py`:
+  - Fetch `manifest.json` from latest release (fall back to monolithic `splunk_docs.db` if not found)
+  - Default mode: display numbered menu of sources; accept comma-separated selection or `'all'`
+  - `--all` flag: skip menu; print size warning + confirmation prompt
+  - Download selected per-source DBs to `.tmp` files; merge via `merge_dbs()`; atomic rename
