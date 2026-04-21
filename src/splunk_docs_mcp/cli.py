@@ -22,6 +22,8 @@ import logging
 import sys
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
+
 from .config import DOCS_DIR, DB_PATH, PHASE1_SOURCES, SOURCES_BY_ID, CrawlSource
 from .crawler import crawl_source
 from . import db as db_module
