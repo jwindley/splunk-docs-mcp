@@ -13,6 +13,9 @@ jobs:
   # One job per source — crawls in parallel, caches per-source DB incrementally
   # ---------------------------------------------------------------------------
   crawl:
+    # A source failing (e.g. site temporarily down) should not block the
+    # merge-and-release job — it merges whatever artifacts were uploaded.
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:

@@ -32,6 +32,7 @@ from .db import (
     get_connection,
     get_content_hash,
     get_crawl_timestamps,
+    get_failed_urls,
     get_visited_urls,
     init_db,
     mark_crawl_state,
@@ -201,6 +202,38 @@ async def crawl_source(
     for w in workers:
         w.cancel()
     await asyncio.gather(*workers, return_exceptions=True)
+
+    # Retry pass — re-attempt URLs that failed the main crawl.
+    # Transient network errors (timeouts, 5xx) often resolve within minutes;
+    # running one retry pass before closing catches most of them without
+    # requiring a full re-crawl on the next run.
+    failed = get_failed_urls(conn, source.source_id)
+    if failed:
+        logger.info(
+            "[%s] Retry pass: re-attempting %d failed URL(s)…",
+            source.source_id, len(failed),
+        )
+        for url in failed:
+            queue.put_nowait(url)
+        retry_workers = [
+            asyncio.create_task(worker())
+            for _ in range(min(effective_concurrency, len(failed)))
+        ]
+        await queue.join()
+        for w in retry_workers:
+            w.cancel()
+        await asyncio.gather(*retry_workers, return_exceptions=True)
+
+        # Update stats to reflect retry outcomes
+        still_failed = get_failed_urls(conn, source.source_id)
+        recovered = len(failed) - len(still_failed)
+        if recovered:
+            stats.failed -= recovered
+            stats.fetched += recovered
+            logger.info(
+                "[%s] Retry pass recovered %d/%d URL(s).",
+                source.source_id, recovered, len(failed),
+            )
 
     conn.close()
     logger.info(f"[{source.source_id}] Crawl complete. {stats.summary()}")

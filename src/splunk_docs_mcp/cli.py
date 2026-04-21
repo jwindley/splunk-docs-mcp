@@ -156,7 +156,20 @@ async def _run(args: argparse.Namespace) -> int:
     _dedup_pass(args)
 
     total_failures = sum(s.failed for s in all_stats)
-    return 1 if total_failures > 0 else 0
+    total_attempted = sum(s.total for s in all_stats)
+    failure_rate = total_failures / total_attempted if total_attempted else 0
+    if failure_rate > 0.05:
+        logger.warning(
+            "Failure rate %.1f%% (%d/%d) exceeds 5%% threshold — exiting with code 1.",
+            failure_rate * 100, total_failures, total_attempted,
+        )
+        return 1
+    if total_failures:
+        logger.info(
+            "%d page(s) failed (%.1f%%) — within acceptable threshold, exiting 0.",
+            total_failures, failure_rate * 100,
+        )
+    return 0
 
 
 def _chunk_pass(args: argparse.Namespace, sources: list[CrawlSource]) -> None:

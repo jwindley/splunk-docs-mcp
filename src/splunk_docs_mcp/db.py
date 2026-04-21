@@ -268,11 +268,25 @@ def mark_crawl_state(
 
 
 def get_visited_urls(conn: sqlite3.Connection, source_id: str) -> set[str]:
-    """Return all URLs already attempted for this source (for crawl resume)."""
+    """Return all non-failed URLs already attempted for this source (for crawl resume).
+
+    Failed URLs are excluded so they are automatically retried on the next
+    incremental crawl run rather than being permanently skipped.
+    """
     rows = conn.execute(
-        "SELECT url FROM crawl_state WHERE source = ?", (source_id,)
+        "SELECT url FROM crawl_state WHERE source = ? AND status != 'failed'",
+        (source_id,),
     ).fetchall()
     return {row["url"] for row in rows}
+
+
+def get_failed_urls(conn: sqlite3.Connection, source_id: str) -> list[str]:
+    """Return URLs that failed on the most recent crawl of source_id."""
+    rows = conn.execute(
+        "SELECT url FROM crawl_state WHERE source = ? AND status = 'failed'",
+        (source_id,),
+    ).fetchall()
+    return [row["url"] for row in rows]
 
 
 def merge_source_db(conn: sqlite3.Connection, source_db_path: Path) -> int:
