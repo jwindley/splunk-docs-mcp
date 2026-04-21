@@ -320,8 +320,8 @@ def merge_source_db(conn: sqlite3.Connection, source_db_path: Path) -> int:
         FROM src.crawl_state
         """
     )
-    conn.execute("DETACH DATABASE src")
     conn.commit()
+    conn.execute("DETACH DATABASE src")
     return merged
 
 
