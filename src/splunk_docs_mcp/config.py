@@ -228,6 +228,18 @@ PHASE1_SOURCES: list[CrawlSource] = [
         blocked_path_prefixes=_HELP_BLOCKED,
     ),
     CrawlSource(
+        source_id="enterprise-security-8-3",
+        display_name="Splunk Enterprise Security 8.3",
+        version="8.3",
+        # No version-specific section seeds — those redirect to 8.5 and get
+        # rejected by the version filter. BFS from the root discovers 8.3 links.
+        seed_urls=[
+            "https://help.splunk.com/en/splunk-enterprise-security-8",
+        ],
+        url_prefix="https://help.splunk.com/en/splunk-enterprise-security-8/",
+        blocked_path_prefixes=_HELP_BLOCKED,
+    ),
+    CrawlSource(
         source_id="lantern",
         display_name="Splunk Lantern",
         version="current",
