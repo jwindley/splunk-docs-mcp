@@ -781,12 +781,12 @@ def get_documents_without_embeddings(
     # chunk rows; embedding the parent again would waste compute and add noise.
     if source_id:
         return conn.execute(
-            "SELECT id, title, content_md FROM documents "
+            "SELECT id, title, content_md, content_hash FROM documents "
             "WHERE embedding IS NULL AND has_chunks = 0 AND source = ?",
             (source_id,),
         ).fetchall()
     return conn.execute(
-        "SELECT id, title, content_md FROM documents "
+        "SELECT id, title, content_md, content_hash FROM documents "
         "WHERE embedding IS NULL AND has_chunks = 0"
     ).fetchall()
 
