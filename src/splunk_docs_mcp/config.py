@@ -185,14 +185,11 @@ PHASE1_SOURCES: list[CrawlSource] = [
         display_name="Splunk Enterprise 10.2",
         version="10.2",
         seed_urls=[
-            # Landing page is the primary reliable entry point
+            # Landing page only — BFS discovers all section pages from here.
+            # Section-level seeds like /{section}/10.2 return HTTP 404 on
+            # help.splunk.com and were removed to avoid accumulating dead URLs
+            # in crawl_state that get re-attempted on every run.
             "https://help.splunk.com/en/splunk-enterprise/",
-            # Section-level seeds — may redirect to a deeper page; the redirect
-            # bug fix (2026-04-18) ensures relative links resolve correctly.
-            *[
-                f"https://help.splunk.com/en/splunk-enterprise/{s}/10.2"
-                for s in _ENTERPRISE_SECTIONS
-            ],
         ],
         url_prefix="https://help.splunk.com/en/splunk-enterprise/",
         blocked_path_prefixes=_HELP_BLOCKED,
@@ -202,13 +199,8 @@ PHASE1_SOURCES: list[CrawlSource] = [
         display_name="Splunk Cloud Platform 10.3.2512",
         version="10.3.2512",
         seed_urls=[
-            # Landing page is the primary reliable entry point
+            # Landing page only — same reasoning as splunk-enterprise above.
             "https://help.splunk.com/en/splunk-cloud-platform/",
-            # Section-level seeds
-            *[
-                f"https://help.splunk.com/en/splunk-cloud-platform/{s}/10.3.2512"
-                for s in _CLOUD_SECTIONS
-            ],
         ],
         url_prefix="https://help.splunk.com/en/splunk-cloud-platform/",
         blocked_path_prefixes=_HELP_BLOCKED,
@@ -219,10 +211,6 @@ PHASE1_SOURCES: list[CrawlSource] = [
         version="10.1",
         seed_urls=[
             "https://help.splunk.com/en/splunk-enterprise/",
-            *[
-                f"https://help.splunk.com/en/splunk-enterprise/{s}/10.1"
-                for s in _ENTERPRISE_SECTIONS
-            ],
         ],
         url_prefix="https://help.splunk.com/en/splunk-enterprise/",
         blocked_path_prefixes=_HELP_BLOCKED,
@@ -233,10 +221,6 @@ PHASE1_SOURCES: list[CrawlSource] = [
         version="10.2",
         seed_urls=[
             "https://help.splunk.com/en/splunk-cloud-platform/",
-            *[
-                f"https://help.splunk.com/en/splunk-cloud-platform/{s}/10.2"
-                for s in _CLOUD_SECTIONS
-            ],
         ],
         url_prefix="https://help.splunk.com/en/splunk-cloud-platform/",
         blocked_path_prefixes=_HELP_BLOCKED,

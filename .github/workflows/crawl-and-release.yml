@@ -53,7 +53,12 @@ jobs:
             splunk-db-${{ matrix.source }}-
 
       - name: Crawl ${{ matrix.source }}
-        run: uv run splunk-crawl --sources ${{ matrix.source }} --db data/${{ matrix.source }}.db
+        # --full re-fetches all pages on every run so the index stays current.
+        # Pages whose raw HTML hasn't changed are skipped at the extract/embed
+        # stage (hash comparison), so only genuinely updated content is re-indexed.
+        # Without --full the cached crawl_state causes "Nothing to crawl" on every
+        # run after the first, meaning the index is never updated.
+        run: uv run splunk-crawl --sources ${{ matrix.source }} --db data/${{ matrix.source }}.db --full
 
       - name: Save per-source DB cache
         if: always()
