@@ -74,7 +74,7 @@ jobs:
           retention-days: 1
 
   # ---------------------------------------------------------------------------
-  # Aggregation — merge all per-source DBs, run dedup, export, release
+  # Aggregation — merge all per-source DBs (dedup runs inside merge), export, release
   # ---------------------------------------------------------------------------
   merge-and-release:
     needs: [crawl]
@@ -117,16 +117,6 @@ jobs:
             exit 1
           fi
           uv run splunk-merge $DBS --output data/splunk_docs.db
-
-      - name: Run cross-source deduplication
-        run: uv run python -c "
-from splunk_docs_mcp.db import get_connection, run_dedup_pass
-from pathlib import Path
-conn = get_connection(Path('data/splunk_docs.db'))
-n = run_dedup_pass(conn)
-print(f'Dedup complete: {n} duplicate rows suppressed')
-conn.close()
-"
 
       - name: Export per-source DBs and manifest
         run: uv run splunk-merge --export-sources data/export/ --db data/splunk_docs.db

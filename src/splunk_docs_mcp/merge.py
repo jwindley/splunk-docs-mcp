@@ -47,6 +47,11 @@ def merge_dbs(source_db_paths: list[Path], output_path: Path) -> None:
     print("Rebuilding FTS5 index…")
     conn.execute("INSERT INTO documents_fts(documents_fts) VALUES('rebuild')")
     conn.commit()
+
+    print("Running cross-source deduplication…")
+    n = db_module.run_dedup_pass(conn)
+    print(f"Dedup complete — {n} duplicate rows suppressed")
+
     print(f"Merge complete — {total} rows total in {output_path}")
 
 
