@@ -16,32 +16,40 @@ The primary use case is giving Claude (via MCP) accurate, version-specific Splun
 
 ## Active Crawl Sources
 
-| Source ID | Display Name | Version | Base URL | Pages |
-|-----------|-------------|---------|----------|-------|
-| `enterprise-security` | Splunk Enterprise Security 8.5 | 8.5 | `help.splunk.com/en/splunk-enterprise-security-8/` | 1,275 |
-| `enterprise-security-8-4` | Splunk Enterprise Security 8.4 | 8.4 | `help.splunk.com/en/splunk-enterprise-security-8/` | ~1,200 est. |
-| `enterprise-security-8-3` | Splunk Enterprise Security 8.3 | 8.3 | `help.splunk.com/en/splunk-enterprise-security-8/` | ~1,100 est. |
-| `admin-manual` | Splunk Configuration File Reference 10.2 | 10.2 | `help.splunk.com/en/data-management/splunk-enterprise-admin-manual/10.2/configuration-file-reference/` | 216 |
-| `splunk-enterprise` | Splunk Enterprise 10.2 | 10.2 | `help.splunk.com/en/splunk-enterprise/` | 3,513 |
-| `splunk-enterprise-10-1` | Splunk Enterprise 10.1 | 10.1 | `help.splunk.com/en/splunk-enterprise/` | ~3,400 est. |
-| `splunk-cloud` | Splunk Cloud Platform 10.3.2512 | 10.3.2512 | `help.splunk.com/en/splunk-cloud-platform/` | 2,658 |
-| `splunk-cloud-10-2` | Splunk Cloud Platform 10.2 | 10.2 | `help.splunk.com/en/splunk-cloud-platform/` | ~2,500 est. |
-| `lantern` | Splunk Lantern | current | `lantern.splunk.com/` | 1,284 |
+Goal: **current released version + n−1** for each product. ITSI, SOAR, Observability are planned additions.
+
+| Source ID | Display Name | Version | Base URL | Pages (actual) | Status |
+|-----------|-------------|---------|----------|----------------|--------|
+| `enterprise-security` | Splunk Enterprise Security 8.5 | 8.5 | `help.splunk.com/en/splunk-enterprise-security-8/` | 738 | ⚠️ Low (expected ~1,275) |
+| `enterprise-security-8-4` | Splunk Enterprise Security 8.4 | 8.4 | `help.splunk.com/en/splunk-enterprise-security-8/` | 336 | ⚠️ Low (expected ~1,200) |
+| `enterprise-security-8-3` | Splunk Enterprise Security 8.3 | 8.3 | `help.splunk.com/en/splunk-enterprise-security-8/` | 0 | ❌ Seed strategy broken |
+| `admin-manual` | Splunk Configuration File Reference 10.2 | 10.2 | `help.splunk.com/en/data-management/splunk-enterprise-admin-manual/10.2/configuration-file-reference/` | 216 | ✅ OK |
+| `splunk-enterprise` | Splunk Enterprise 10.2 | 10.2 | `help.splunk.com/en/splunk-enterprise/` | 3,549 | ✅ OK |
+| `splunk-enterprise-10-1` | Splunk Enterprise 10.1 | 10.1 | `help.splunk.com/en/splunk-enterprise/` | 0 | ❌ Seed strategy broken |
+| `splunk-cloud` | Splunk Cloud Platform 10.3.2512 | 10.3.2512 | `help.splunk.com/en/splunk-cloud-platform/` | 2,658 | ✅ OK |
+| `splunk-cloud-10-2` | Splunk Cloud Platform 10.2 | 10.2 | `help.splunk.com/en/splunk-cloud-platform/` | 112 | ❌ Seed strategy broken |
+| `lantern` | Splunk Lantern | current | `lantern.splunk.com/` | 1,278 | ✅ OK |
+
+**Known issue — older version seeding (affects Enterprise 10.1, Cloud 10.2, ES 8.3):**
+Section-level seed URLs for older versions redirect to the current version's section page. All links on the redirect destination are for the current version and get rejected by the version filter. Fix needed: a better seeding strategy that can discover older-version page URLs directly (see TODO.md).
+
+**Known issue — Enterprise vs Cloud dedup gap:**
+The current dedup uses raw HTML hash (`content_hash`). Enterprise and Cloud pages have different HTML (different URLs = different HTML structure), so their hashes differ even when extracted Markdown is identical. ~2,006 Enterprise pages (56%) share content with Cloud: `search` (673), `alert-and-respond` (272), `spl-search-reference` (203), `create-dashboards-and-reports` (176). Fix: add `content_md_hash` column and include in `run_dedup_pass()`.
 
 ---
 
 ## Distribution Model (Phase 2 — complete)
 
-- **GitHub Actions** crawls weekly (Sunday 02:00 UTC) + `workflow_dispatch`; 9-job matrix (one per source); aggregation job merges + exports + publishes release
+- **GitHub Actions** crawls weekly (Sunday 02:00 UTC) + `workflow_dispatch`; 9-job matrix (one per source); aggregation job merges (skipping missing DBs) + exports + publishes release
 - **Release assets:** `splunk_docs.db` (full merged), `splunk_docs_<source>.db` (per-source), `manifest.json`
-- **`splunk-setup`** downloads latest release asset to `data/splunk_docs.db`
+- **`splunk-setup`** interactive menu — select sources or `all`; downloads per-source DBs, merges, cleans up WAL temp files
 - **`splunk-merge`** combines per-source DBs; `--export-sources` generates per-source files + `manifest.json`
 - User flow: `git clone` → `uv sync` → `uv run splunk-setup` → configure MCP → done
 
 ## Future Scope (do NOT build yet)
 
 - **SPL examples library** — curated JSON → separate `spl_examples` DB table + `search_spl` MCP tool (schema stub already in `db.py`)
-- **`splunk-setup` version selection UI (Item 9)** — interactive menu to download only selected sources; falls back to monolithic DB for backward compat
+- **Add ITSI, SOAR, Observability** — most-requested missing products
 
 ---
 

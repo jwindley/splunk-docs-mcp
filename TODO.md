@@ -1,85 +1,85 @@
 # TODO — splunk-docs-mcp
 
-_Last updated: 2026-04-21 (Phase 3 complete except Item 9)_
+_Last updated: 2026-04-23_
 
 ---
 
-## 🔴 Priority 1 — Do next (GHA re-run)
+## 🔴 Priority 1 — Do next
 
 ### Trigger GHA re-run
 - [ ] Go to Actions → Crawl and release → Run workflow (`workflow_dispatch`)
-- [ ] Verify all 9 crawl jobs complete successfully (exit 0)
-- [ ] Verify `merge-and-release` job runs and publishes release
-- [ ] Confirm `splunk_docs.db` + per-source DBs + `manifest.json` in release assets
+- [ ] Verify all 9 crawl jobs complete — especially Enterprise 10.1 and Cloud 10.2 (known issues)
+- [ ] Verify `merge-and-release` job runs even if some crawl jobs fail (new resilient merge step)
+- [ ] Confirm `splunk_docs.db` + per-source DBs + `manifest.json` appear in release assets
 - [ ] Test `uv run splunk-setup` downloads the new release successfully
 
-### Item 9: `splunk-setup` version selection UI ✅
-- [x] Fetches `manifest.json` from latest release; falls back to monolithic `splunk_docs.db` if absent
-- [x] Default mode: numbered menu listing source name, page count, size in MB; accepts comma-separated selection or `'all'`
-- [x] `--all` flag: skips menu; prints total size + confirmation prompt
-- [x] Downloads selected per-source DBs to `.tmp` files; single-source skips merge; multi-source merges via `merge_dbs()`; atomic rename to `data/splunk_docs.db`
+### Fix older-version seeding (Enterprise 10.1, Cloud 10.2, ES 8.3)
+- [ ] Investigate why `splunk-enterprise-10-1` returns 0 pages (section seeds likely redirect to 10.2)
+- [ ] Investigate why `splunk-cloud-10-2` returns only ~112 pages
+- [ ] Investigate `enterprise-security-8-3` = 0 pages (BFS from root doesn't discover 8.3 links)
+- [ ] Design a better seeding strategy (e.g., version-substitution from known current URLs, or version-specific sitemaps)
+- [ ] Re-crawl after fixing seeds with `--full` to get clean discovery
+
+### ES 8.5/8.4 page count investigation
+- [ ] ES 8.5 has 738 pages (expected ~1,275); ES 8.4 has 336 pages (expected ~1,200)
+- [ ] Check GHA crawl logs for rate-limiting or timeout errors on those jobs
+- [ ] Run another GHA crawl and compare counts
 
 ---
 
 ## 🟡 Priority 2 — Nice to have
 
+### Extend dedup to catch Enterprise vs Cloud overlap
+- [ ] Add `content_md_hash TEXT` column to `documents` (hash of extracted Markdown, not raw HTML)
+- [ ] Compute `content_md_hash` at crawl time (in `upsert_document`) or in a backfill pass
+- [ ] Update `run_dedup_pass()` to also group by `content_md_hash` in addition to `content_hash`
+- [ ] Re-run dedup after backfilling — ~2,006 Enterprise pages (~56%) have identical content to Cloud
+- [ ] Sections most affected: `search` (673), `alert-and-respond` (272), `spl-search-reference` (203)
+
 ### ES crawl failure investigation
 - [ ] Run: `sqlite3 data/splunk_docs.db "SELECT url, error FROM crawl_state WHERE status='failed';"`
-- [ ] Determine if the 2 persistent ES failures are dead pages (404) or something fixable
+- [ ] Determine if persistent failures are dead pages (404) or transient errors
 
 ---
 
 ## ⚫ Priority 3 — Future / optional
 
-- [ ] **'Dead' URL status for permanent 404s** — currently URLs that 404 are stored as `status='failed'` and retried on every run. Adding a `'dead'` status (set when HTTP 404 is received) would exclude those URLs from `get_failed_urls()` and `get_visited_urls()`, stopping them being retried forever. Affects ~22 section-seed URLs per run across Enterprise/Cloud sources.
+- [ ] **'Dead' URL status for permanent 404s** — currently URLs that 404 are stored as `status='failed'` and retried on every run. Adding a `'dead'` status (set when HTTP 404 is received) would exclude those URLs from `get_failed_urls()` and `get_visited_urls()`, stopping them being retried forever.
 - [ ] **Weekly full re-fetch for content change detection** — currently incremental mode skips pages already in `crawl_state` as 'fetched', so updated docs are never re-indexed. Options:
   - Use sitemap `<lastmod>` in normal (non-`--full`) mode: re-queue pages where `lastmod > last_crawl_timestamp` (already fetched from sitemap; just need to remove the `if full and` guard in `crawler.py`). Works for Lantern; no help for sources without sitemaps.
-  - Add a `--rehash` mode: re-fetch all pages and compare HTML hash, re-extract only on change, skip re-embedding if content unchanged. More thorough but slower than lastmod.
-  - Simplest: run weekly cron with `--full` but skip re-embedding when hash unchanged (currently `--full` clears all embeddings unconditionally — could add `--full-crawl-only` that re-fetches without clearing embeddings).
+  - Add a `--rehash` mode: re-fetch all pages and compare HTML hash, re-extract only on change.
+  - Simplest: run weekly cron with `--full` but skip re-embedding when hash unchanged.
 - [ ] **SPL examples library** — `spl_examples` table + `search_spl` MCP tool (schema stub already in `db.py`)
-- [ ] **Multi-version expansion** — add more ES or Enterprise versions to `config.py` as needed
+- [ ] **Add ITSI, SOAR, Observability** — most-requested missing products
+- [ ] **splunk-setup version selection UI Item 9** — ✅ Already done
+
+---
+
+## ✅ Done (2026-04-23)
+
+### README overhaul
+- Hallucination motivation prominent at top
+- uv install instructions (Homebrew, curl, PowerShell)
+- Removed "Merging per-source databases" section (CI-only, confuses users)
+- Simplified sources table with n−1 coverage model
+- ITSI/SOAR/Observability listed as planned additions
+
+### Bug fixes
+- `setup.py`: clean up stale WAL/SHM files after merge temp rename
+- `.gitignore`: added `*.tmp`, `*.tmp-wal`, `*.tmp-shm` patterns for merge temp files
+- `crawl-and-release.yml`: merge step now skips missing per-source DBs instead of failing
+- `crawl-and-release.yml`: release body now lists all 9 sources including Enterprise 10.1 and Cloud 10.2
 
 ---
 
 ## ✅ Done (Phase 3, 2026-04-20/21)
 
 ### Item 1: GHA matrix parallelisation + `merge_dbs()` ✅
-- `src/splunk_docs_mcp/merge.py` — `merge_dbs()`, `export_sources()`, `splunk-merge` CLI (merge + export modes)
-- `db.merge_source_db()` — ATTACH + INSERT OR IGNORE; auto-assigns IDs; FTS5 triggers fire correctly
-- `pyproject.toml` — `splunk-merge` entry point added
-- `.github/workflows/crawl-and-release.yml` — 9-job matrix + aggregation job
-
 ### Item 7: Multi-version crawling ✅
-- 4 new `CrawlSource` entries: `enterprise-security-8-4`, `enterprise-security-8-3`, `splunk-enterprise-10-1`, `splunk-cloud-10-2`
-- `version: str | None` filter on `search_docs()` and `search_docs_semantic_from_matrix()`
-- Both search tools in `server.py` expose `version=` parameter with valid value list
-- MCP instructions updated: 9-source list + version filter guidance
-
 ### Item 5: Cross-source deduplication ✅
-- `is_duplicate INTEGER DEFAULT 0` column (ALTER TABLE migration)
-- `run_dedup_pass(conn)` — groups by `content_hash` across sources; priority: ES 8.5 > ES 8.4 > ES 8.3 > admin-manual > Enterprise 10.2 > Enterprise 10.1 > Cloud 10.3.2512 > Cloud 10.2 > Lantern
-- `search_docs()` + `search_docs_semantic_from_matrix()`: apply `is_duplicate=0` filter unless `version=` is set (version-specific queries see all docs regardless of dedup)
-- `_dedup_pass()` in `cli.py` runs after every crawl
-
-### Priority 5 items ✅
-- `--delay-jitter SECONDS` flag: uniform random jitter added to each request delay
-- `tests/test_extractor.py`: 18 tests for `parse_url_metadata()` (ES, admin-manual, Lantern)
-- `tests/test_crawler.py`: 18 tests for `_normalise_url`, `_is_target_url`, `_section_from_url`
-- All 36 tests pass
-
+### Item 9: splunk-setup version selection UI ✅
+### Priority 5 items ✅ (jitter, tests)
 ### GHA fixes (2026-04-21) ✅
-- `cli.py`: exit 1 only if failure rate >5% (was: any failure = exit 1)
-- `crawler.py`: retry pass after BFS re-attempts failed URLs once; `get_visited_urls()` excludes failed rows so they're retried on next incremental run
-- `db.py`: `get_failed_urls()` helper; `get_visited_urls()` excludes `status='failed'`
-- `crawl-and-release.yml`: `continue-on-error: true` on crawl jobs; `if: always()` on cache-save and artifact-upload steps
-
-### README overhaul ✅
-- Why it exists: learning MCP, fun side project, vibe-coded
-- Works with any MCP-compatible client (not just Claude)
-- "Getting the best results" section + custom instructions tip
-- All 9 sources with `source=` and `version=` filter docs
-- Cross-source dedup behaviour documented
-- `--delay-jitter`, `--rechunk`, `splunk-merge` in building-locally section
 
 ---
 
@@ -93,4 +93,4 @@ _Last updated: 2026-04-21 (Phase 3 complete except Item 9)_
 - [x] **Item 2** — Lantern sitemap-based URL discovery
 - [x] **Item 6** — Embedding reuse via `content_hash`
 - [x] All core files: `config.py`, `db.py`, `extractor.py`, `crawler.py`, `cli.py`, `server.py`
-- [x] Full crawls of all original 5 sources (~8,946 pages total)
+- [x] Full crawls of all original 5 sources

@@ -218,5 +218,11 @@ def main() -> None:
         for p in tmp_paths:
             p.unlink(missing_ok=True)
         merge_tmp.rename(DB_PATH)
+        # Remove stale WAL/SHM files left by the merge temp database.
+        # SQLite WAL mode creates {db}-wal and {db}-shm alongside the DB file;
+        # renaming the DB doesn't move these, so they linger as untracked noise.
+        for ext in ["-wal", "-shm"]:
+            stale = merge_tmp.parent / (merge_tmp.name + ext)
+            stale.unlink(missing_ok=True)
 
     print(f"\nDone. Database written to {DB_PATH}")

@@ -1,14 +1,12 @@
 # Build Plan — splunk-docs-mcp
 
-_Last updated: 2026-04-21 (Phase 3 complete except Item 9; GHA first run fixed)_
+_Last updated: 2026-04-23 (README overhaul, WAL fix, GHA merge resilience, dedup analysis)_
 
 ---
 
 ## Current Status
 
-**Phase 1, 2, and most of Phase 3 are complete.** All Phase 3 Tier 1–3 items and most Tier 4 items are done. The GHA workflow ran for the first time and produced a failure (fixed — see below). A second GHA run is needed to produce the first public release.
-
-**One item outstanding:** Item 9 (splunk-setup version selection UI). Deferred due to token budget; carries to next session.
+**Phase 1, 2, and most of Phase 3 are complete.** GHA workflow is running but three sources have crawl issues (see Known Issues below). A GHA re-run is needed to incorporate the fixes from this session.
 
 ---
 
@@ -17,7 +15,7 @@ _Last updated: 2026-04-21 (Phase 3 complete except Item 9; GHA first run fixed)_
 | File | Status | Notes |
 |------|--------|-------|
 | `pyproject.toml` | ✅ Done | Deps + entry points: `splunk-mcp`, `splunk-crawl`, `splunk-setup`, `splunk-merge` |
-| `.gitignore` | ✅ Done | |
+| `.gitignore` | ✅ Done | Includes merge temp patterns (*.tmp, *.tmp-wal, *.tmp-shm) |
 | `.python-version` | ✅ Done | `3.12` |
 | `src/splunk_docs_mcp/__init__.py` | ✅ Done | |
 | `src/splunk_docs_mcp/config.py` | ✅ Done | 9 active sources (ES 8.3/8.4/8.5, admin-manual 10.2, Enterprise 10.1/10.2, Cloud 10.2/10.3.2512, Lantern) |
@@ -27,11 +25,11 @@ _Last updated: 2026-04-21 (Phase 3 complete except Item 9; GHA first run fixed)_
 | `src/splunk_docs_mcp/cli.py` | ✅ Done | `--delay-jitter`; `_dedup_pass()`; exit 1 only if failure rate >5% |
 | `src/splunk_docs_mcp/crawler.py` | ✅ Done | Retry pass after BFS; failed URLs excluded from visited set; `--delay-jitter` support |
 | `src/splunk_docs_mcp/merge.py` | ✅ Done | `merge_dbs()`, `export_sources()`, `splunk-merge` CLI |
-| `src/splunk_docs_mcp/setup.py` | ✅ Done | `splunk-setup` downloads latest release asset |
+| `src/splunk_docs_mcp/setup.py` | ✅ Done | Interactive menu; per-source selection; WAL cleanup after merge |
 | `tests/test_extractor.py` | ✅ Done | 18 tests for `parse_url_metadata()` |
 | `tests/test_crawler.py` | ✅ Done | 18 tests for `_normalise_url`, `_is_target_url`, `_section_from_url` |
-| `.github/workflows/crawl-and-release.yml` | ✅ Done | 9-job matrix; `continue-on-error`; `if: always()` on cache/artifact steps |
-| `README.md` | ✅ Done | Rewritten: why it exists, vibe-coded, any MCP client, setup tips, all 9 sources |
+| `.github/workflows/crawl-and-release.yml` | ✅ Done | 9-job matrix; resilient merge (skips missing DBs); corrected release body |
+| `README.md` | ✅ Done | Hallucination motivation at top; uv install instructions; simplified sources table; n−1 coverage model; removed CI-only merge section |
 
 ---
 
@@ -43,29 +41,52 @@ _Last updated: 2026-04-21 (Phase 3 complete except Item 9; GHA first run fixed)_
 - **BM25 keyword search:** FTS5, BM25 ranked, title weighted 10×, snippets
 - **Semantic search:** all-MiniLM-L6-v2 embeddings, matrix cached at startup
 - **Crawler retry pass:** after main BFS, failed URLs are re-attempted once; recovers transient timeouts/5xx
-- **Incremental re-crawl:** failed URLs now excluded from visited set so they're retried on next run
+- **Incremental re-crawl:** failed URLs excluded from visited set so they're retried on next run
 - **`splunk-merge`:** merges per-source DBs + exports per-source files + `manifest.json`
+- **`splunk-setup`:** interactive menu; single-source skips merge; multi-source merges; WAL cleanup
 - **36 passing tests:** `parse_url_metadata`, `_normalise_url`, `_is_target_url`, `_section_from_url`
-- **GHA workflow:** 9-job matrix, per-source DB caching, `continue-on-error`, `if: always()` safety net
+- **GHA workflow:** 9-job matrix, per-source DB caching, `continue-on-error`, resilient merge (skips missing per-source DBs)
 
 ---
 
-## GHA First Run (2026-04-21) — What Happened and Fixes Applied
+## Known Issues
 
-**What happened:**
-- Crawl completed successfully (~9,452 pages, 46,299 embeddings)
-- 35 pages failed (0.4%) due to transient network errors
-- `cli.py` exited with code 1 for any non-zero failures
-- GHA skipped the cache-save and upload-artifact steps (they ran after the failed step)
-- `merge-and-release` job had no artifacts → no release published
+### 1. Enterprise 10.1 and Cloud 10.2 — near-zero pages crawled
 
-**Fixes applied (all committed and pushed):**
-1. `cli.py`: exit 1 only if failure rate >5% of total pages — 0.4% now exits 0
-2. `crawler.py`: retry pass after main BFS re-attempts all failed URLs once
-3. `db.py`: `get_visited_urls()` excludes `status='failed'` rows — failed pages retried on next incremental run
-4. `crawl-and-release.yml`: `continue-on-error: true` on crawl jobs; `if: always()` on cache-save and artifact-upload steps
+**Symptom:** `splunk-enterprise-10-1` has 0 pages; `splunk-cloud-10-2` has only ~112 pages (expected ~2,500).
 
-**Action required:** Trigger another `workflow_dispatch` run to produce the first release.
+**Root cause:** The section-level seed URLs for older versions (e.g., `/get-started/10.1`) redirect to the current version's section page. All links on the redirect destination are for the current version (10.2/10.3.2512), and the version filter rejects them. The only pages discovered are those from section seeds that happen to redirect to a page still versioned at 10.2 (e.g., the universal forwarder manual).
+
+**Impact:** Users cannot search Cloud 10.2 or Enterprise 10.1 documentation.
+
+**Fix needed:** Alternative seeding strategy for older versions. Options:
+- Crawl the current version's sitemap/pages, then substitute the version segment in URLs and attempt to fetch the older version equivalent.
+- Find version-specific sitemaps or index pages that list older-version content explicitly.
+- Use `--full` after fixing seeds to ensure clean re-discovery.
+
+### 2. ES 8.5 and 8.4 — lower page counts than expected
+
+**Symptom:** ES 8.5 = 738 pages (expected ~1,275); ES 8.4 = 336 pages (expected ~1,200).
+
+**Likely cause:** GHA rate limiting or timeouts during the crawl run. The version filter and seeds look correct for these sources.
+
+**Fix:** Trigger another GHA run; monitor for rate-limiting errors in the crawl logs.
+
+### 3. ES 8.3 — 0 pages crawled
+
+**Symptom:** `enterprise-security-8-3` has 0 pages.
+
+**Root cause:** The ES 8.3 config intentionally omits version-specific section seeds (they redirect to 8.5). BFS from the root is meant to discover 8.3 pages, but the root page likely only links to the current version, and no 8.3 links are reachable. This has the same fundamental cause as issue #1.
+
+**Fix:** Same as issue #1 — need a better seeding strategy for older ES versions.
+
+### 4. Enterprise vs Cloud dedup gap
+
+**Symptom:** The current dedup (`run_dedup_pass`) is based on raw HTML hash (`content_hash`). Enterprise and Cloud pages are served from different URLs and have different HTML, so their raw HTML hashes differ even when the extracted Markdown content is identical.
+
+**Impact:** ~2,006 Enterprise pages (56%) share matching titles and content lengths with Cloud pages. Sections with the most overlap: `search` (673), `alert-and-respond` (272), `spl-search-reference` (203), `create-dashboards-and-reports` (176). Without dedup, searches return both Enterprise and Cloud versions of identical articles.
+
+**Fix needed:** Add a `content_md_hash` column and use it (in addition to `content_hash`) in `run_dedup_pass()`. This would let the dedup detect identical Markdown content across different HTML sources.
 
 ---
 
@@ -73,10 +94,11 @@ _Last updated: 2026-04-21 (Phase 3 complete except Item 9; GHA first run fixed)_
 
 | Item | Status |
 |------|--------|
-| Item 9 — `splunk-setup` version selection UI | ❌ Not started |
-| GHA second run (produce first release) | ⏳ Needs manual trigger |
-| ES crawl failure investigation (2 specific URLs) | ❌ Not investigated |
-| 4 new sources first crawl (ES 8.3/8.4, Enterprise 10.1, Cloud 10.2) | ⏳ Will happen on next GHA run |
+| Item 9 — `splunk-setup` version selection UI | ✅ Done |
+| GHA re-run to produce updated release | ⏳ Needs manual trigger |
+| Enterprise 10.1 / Cloud 10.2 seed strategy fix | ❌ Not started |
+| ES 8.3 seed strategy fix | ❌ Not started |
+| Enterprise vs Cloud dedup via content_md_hash | ❌ Not started |
 
 ---
 
@@ -98,15 +120,5 @@ _Last updated: 2026-04-21 (Phase 3 complete except Item 9; GHA first run fixed)_
 
 ### Tier 4 — Polish (partial)
 - **Item 5** ✅ — Cross-source deduplication (`is_duplicate` column; version-bypass logic)
-- **Item 9** ❌ — `splunk-setup` version selection UI (not started; next session)
-
----
-
-## Item 9 — splunk-setup version selection UI (next session)
-
-- Define `manifest.json` schema: `{generated_at, total_pages, sources: [{source_id, display_name, version, pages, chunks, file_name, size_bytes}]}` — schema already generated by `splunk-merge --export-sources`
-- Update `setup.py`:
-  - Fetch `manifest.json` from latest release (fall back to monolithic `splunk_docs.db` if not found)
-  - Default mode: display numbered menu of sources; accept comma-separated selection or `'all'`
-  - `--all` flag: skip menu; print size warning + confirmation prompt
-  - Download selected per-source DBs to `.tmp` files; merge via `merge_dbs()`; atomic rename
+- **Item 5b** ❌ — Extend dedup to use `content_md_hash` for Enterprise/Cloud overlap
+- **Item 9** ✅ — `splunk-setup` version selection UI

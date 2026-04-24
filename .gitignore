@@ -22,6 +22,10 @@ data/docs/
 data/*.db
 data/*.db-wal
 data/*.db-shm
+# Merge temp files created by splunk-setup when combining per-source DBs
+data/*.tmp
+data/*.tmp-wal
+data/*.tmp-shm
 
 # Logs
 *.log

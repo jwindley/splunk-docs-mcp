@@ -97,17 +97,24 @@ jobs:
 
       - name: Merge per-source DBs
         run: |
-          uv run splunk-merge \
-            data/enterprise-security.db \
-            data/enterprise-security-8-4.db \
-            data/enterprise-security-8-3.db \
-            data/admin-manual.db \
-            data/splunk-enterprise.db \
-            data/splunk-enterprise-10-1.db \
-            data/splunk-cloud.db \
-            data/splunk-cloud-10-2.db \
-            data/lantern.db \
-            --output data/splunk_docs.db
+          # Build the list of DBs that actually exist — a crawl job may have
+          # failed or timed out, leaving its artifact absent. We merge whatever
+          # was uploaded rather than failing the whole release.
+          DBS=""
+          for src in enterprise-security enterprise-security-8-4 enterprise-security-8-3 \
+                     admin-manual splunk-enterprise splunk-enterprise-10-1 \
+                     splunk-cloud splunk-cloud-10-2 lantern; do
+            if [ -f "data/${src}.db" ]; then
+              DBS="$DBS data/${src}.db"
+            else
+              echo "Warning: data/${src}.db not found — skipping (crawl job may have failed)"
+            fi
+          done
+          if [ -z "$DBS" ]; then
+            echo "ERROR: no source DBs found — cannot build release"
+            exit 1
+          fi
+          uv run splunk-merge $DBS --output data/splunk_docs.db
 
       - name: Export per-source DBs and manifest
         run: uv run splunk-merge --export-sources data/export/ --db data/splunk_docs.db
@@ -126,9 +133,9 @@ jobs:
 
             **Sources indexed:**
             - Splunk Enterprise Security 8.3, 8.4, 8.5
+            - Splunk Enterprise 10.1, 10.2
+            - Splunk Cloud Platform 10.2, 10.3.2512
             - Splunk Configuration File Reference 10.2
-            - Splunk Enterprise 10.2
-            - Splunk Cloud Platform 10.3.2512
             - Splunk Lantern (current)
 
             **Downloads:**
