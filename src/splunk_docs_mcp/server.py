@@ -110,14 +110,12 @@ mcp = FastMCP(
         "  enterprise-security-8-3  — Splunk Enterprise Security 8.3\n"
         "  admin-manual             — Splunk Configuration File Reference 10.2\n"
         "  splunk-enterprise        — Splunk Enterprise 10.2\n"
-        "  splunk-enterprise-10-1   — Splunk Enterprise 10.1\n"
         "  splunk-cloud             — Splunk Cloud Platform 10.3.2512\n"
-        "  splunk-cloud-10-2        — Splunk Cloud Platform 10.2\n"
         "  lantern                  — Splunk Lantern (use-case guidance, best practices)\n\n"
         "Version filter (version= on search_docs / search_docs_semantic):\n"
         "  Use version= to filter across sources by product version when the user asks\n"
         "  about a specific release. Example: version='8.4' returns ES 8.4 docs only.\n"
-        "  Valid values: '8.3', '8.4', '8.5', '10.1', '10.2', '10.3.2512', 'current'.\n"
+        "  Valid values: '8.3', '8.4', '8.5', '10.2', '10.3.2512', 'current'.\n"
         "  Combine source= and version= for precise targeting (e.g. ES 8.4 only).\n\n"
 
         "DECISION TREE — apply before every question:\n\n"
@@ -199,7 +197,7 @@ def search_docs(
             "Limit search to a specific source. "
             "Options: 'enterprise-security', 'enterprise-security-8-4', "
             "'enterprise-security-8-3', 'admin-manual', 'splunk-enterprise', "
-            "'splunk-enterprise-10-1', 'splunk-cloud', 'splunk-cloud-10-2', 'lantern'. "
+            "'splunk-cloud', 'lantern'. "
             "Omit to search across all indexed sources."
         )),
     ] = None,
@@ -207,7 +205,7 @@ def search_docs(
         str | None,
         Field(description=(
             "Filter by product version. "
-            "Valid values: '8.3', '8.4', '8.5', '10.1', '10.2', '10.3.2512', 'current'. "
+            "Valid values: '8.3', '8.4', '8.5', '10.2', '10.3.2512', 'current'. "
             "Combine with source= for precise targeting, or use alone to search "
             "a specific release across all sources that have it."
         )),
@@ -264,7 +262,7 @@ def search_docs_semantic(
             "Limit search to a specific source. "
             "Options: 'enterprise-security', 'enterprise-security-8-4', "
             "'enterprise-security-8-3', 'admin-manual', 'splunk-enterprise', "
-            "'splunk-enterprise-10-1', 'splunk-cloud', 'splunk-cloud-10-2', 'lantern'. "
+            "'splunk-cloud', 'lantern'. "
             "Omit to search across all indexed sources."
         )),
     ] = None,
@@ -272,7 +270,7 @@ def search_docs_semantic(
         str | None,
         Field(description=(
             "Filter by product version. "
-            "Valid values: '8.3', '8.4', '8.5', '10.1', '10.2', '10.3.2512', 'current'. "
+            "Valid values: '8.3', '8.4', '8.5', '10.2', '10.3.2512', 'current'. "
             "Combine with source= for precise targeting."
         )),
     ] = None,

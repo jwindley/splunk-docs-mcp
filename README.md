@@ -125,9 +125,7 @@ The goal is to keep the **current released version plus the previous version (n�
 | `enterprise-security-8-4` | Splunk Enterprise Security | 8.4 (n−1) |
 | `enterprise-security-8-3` | Splunk Enterprise Security | 8.3 (n−2) |
 | `splunk-enterprise` | Splunk Enterprise | 10.2 (current) |
-| `splunk-enterprise-10-1` | Splunk Enterprise | 10.1 (n−1) |
 | `splunk-cloud` | Splunk Cloud Platform | 10.3.2512 (current) |
-| `splunk-cloud-10-2` | Splunk Cloud Platform | 10.2 (n−1) |
 | `admin-manual` | Splunk Configuration File Reference | 10.2 |
 | `lantern` | Splunk Lantern | current |
 

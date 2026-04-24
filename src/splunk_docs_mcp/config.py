@@ -206,26 +206,6 @@ PHASE1_SOURCES: list[CrawlSource] = [
         blocked_path_prefixes=_HELP_BLOCKED,
     ),
     CrawlSource(
-        source_id="splunk-enterprise-10-1",
-        display_name="Splunk Enterprise 10.1",
-        version="10.1",
-        seed_urls=[
-            "https://help.splunk.com/en/splunk-enterprise/",
-        ],
-        url_prefix="https://help.splunk.com/en/splunk-enterprise/",
-        blocked_path_prefixes=_HELP_BLOCKED,
-    ),
-    CrawlSource(
-        source_id="splunk-cloud-10-2",
-        display_name="Splunk Cloud Platform 10.2",
-        version="10.2",
-        seed_urls=[
-            "https://help.splunk.com/en/splunk-cloud-platform/",
-        ],
-        url_prefix="https://help.splunk.com/en/splunk-cloud-platform/",
-        blocked_path_prefixes=_HELP_BLOCKED,
-    ),
-    CrawlSource(
         source_id="enterprise-security-8-4",
         display_name="Splunk Enterprise Security 8.4",
         version="8.4",
@@ -243,10 +223,15 @@ PHASE1_SOURCES: list[CrawlSource] = [
         source_id="enterprise-security-8-3",
         display_name="Splunk Enterprise Security 8.3",
         version="8.3",
-        # No version-specific section seeds — those redirect to 8.5 and get
-        # rejected by the version filter. BFS from the root discovers 8.3 links.
+        # Section seeds use the same pattern as 8.4 — /section/8.3 loads 8.3
+        # content directly (the earlier assumption that these redirect to 8.5
+        # was incorrect; 8.4 section seeds work identically and 8.3 should too).
         seed_urls=[
             "https://help.splunk.com/en/splunk-enterprise-security-8",
+            *[
+                f"https://help.splunk.com/en/splunk-enterprise-security-8/{s}/8.3"
+                for s in _ES_SECTIONS
+            ],
         ],
         url_prefix="https://help.splunk.com/en/splunk-enterprise-security-8/",
         blocked_path_prefixes=_HELP_BLOCKED,

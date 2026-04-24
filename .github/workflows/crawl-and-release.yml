@@ -25,9 +25,7 @@ jobs:
           - enterprise-security-8-3
           - admin-manual
           - splunk-enterprise
-          - splunk-enterprise-10-1
           - splunk-cloud
-          - splunk-cloud-10-2
           - lantern
 
     runs-on: ubuntu-latest
@@ -76,7 +74,7 @@ jobs:
           retention-days: 1
 
   # ---------------------------------------------------------------------------
-  # Aggregation — merge all per-source DBs, export per-source files, release
+  # Aggregation — merge all per-source DBs, run dedup, export, release
   # ---------------------------------------------------------------------------
   merge-and-release:
     needs: [crawl]
@@ -107,8 +105,7 @@ jobs:
           # was uploaded rather than failing the whole release.
           DBS=""
           for src in enterprise-security enterprise-security-8-4 enterprise-security-8-3 \
-                     admin-manual splunk-enterprise splunk-enterprise-10-1 \
-                     splunk-cloud splunk-cloud-10-2 lantern; do
+                     admin-manual splunk-enterprise splunk-cloud lantern; do
             if [ -f "data/${src}.db" ]; then
               DBS="$DBS data/${src}.db"
             else
@@ -120,6 +117,16 @@ jobs:
             exit 1
           fi
           uv run splunk-merge $DBS --output data/splunk_docs.db
+
+      - name: Run cross-source deduplication
+        run: uv run python -c "
+from splunk_docs_mcp.db import get_connection, run_dedup_pass
+from pathlib import Path
+conn = get_connection(Path('data/splunk_docs.db'))
+n = run_dedup_pass(conn)
+print(f'Dedup complete: {n} duplicate rows suppressed')
+conn.close()
+"
 
       - name: Export per-source DBs and manifest
         run: uv run splunk-merge --export-sources data/export/ --db data/splunk_docs.db
@@ -138,8 +145,8 @@ jobs:
 
             **Sources indexed:**
             - Splunk Enterprise Security 8.3, 8.4, 8.5
-            - Splunk Enterprise 10.1, 10.2
-            - Splunk Cloud Platform 10.2, 10.3.2512
+            - Splunk Enterprise 10.2
+            - Splunk Cloud Platform 10.3.2512
             - Splunk Configuration File Reference 10.2
             - Splunk Lantern (current)
 
