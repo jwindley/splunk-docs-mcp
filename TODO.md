@@ -1,29 +1,16 @@
 # TODO — splunk-docs-mcp
 
-_Last updated: 2026-04-23_
+_Last updated: 2026-04-25_
 
 ---
 
 ## 🔴 Priority 1 — Do next
 
-### Trigger GHA re-run
-- [ ] Go to Actions → Crawl and release → Run workflow (`workflow_dispatch`)
-- [ ] Verify all 9 crawl jobs complete — especially Enterprise 10.1 and Cloud 10.2 (known issues)
-- [ ] Verify `merge-and-release` job runs even if some crawl jobs fail (new resilient merge step)
-- [ ] Confirm `splunk_docs.db` + per-source DBs + `manifest.json` appear in release assets
-- [ ] Test `uv run splunk-setup` downloads the new release successfully
-
-### Fix older-version seeding (Enterprise 10.1, Cloud 10.2, ES 8.3)
-- [ ] Investigate why `splunk-enterprise-10-1` returns 0 pages (section seeds likely redirect to 10.2)
-- [ ] Investigate why `splunk-cloud-10-2` returns only ~112 pages
-- [ ] Investigate `enterprise-security-8-3` = 0 pages (BFS from root doesn't discover 8.3 links)
-- [ ] Design a better seeding strategy (e.g., version-substitution from known current URLs, or version-specific sitemaps)
-- [ ] Re-crawl after fixing seeds with `--full` to get clean discovery
-
-### ES 8.5/8.4 page count investigation
-- [ ] ES 8.5 has 738 pages (expected ~1,275); ES 8.4 has 336 pages (expected ~1,200)
-- [ ] Check GHA crawl logs for rate-limiting or timeout errors on those jobs
-- [ ] Run another GHA crawl and compare counts
+### Fix ES 8.4 incomplete coverage
+- [ ] ES 8.4 gets 369 pages vs ES 8.5's 738 — confirmed missing `api-reference` (83 pages in 8.5), `common-information-model` (66), and most of `splunk-app-for-pci-compliance` (183→6)
+- [ ] Root cause: those sections only have `/8.5/` versioned links on the live site; BFS from 8.4 seeds never discovers them
+- [ ] Fix: add direct section seeds for the missing 8.4 sections (e.g. `splunk-app-for-pci-compliance/user-manual/8.4`) so BFS can enter them directly
+- [ ] Re-crawl with `--full` after adding seeds, verify page count improves
 
 ---
 
@@ -36,22 +23,29 @@ _Last updated: 2026-04-23_
 - [ ] Re-run dedup after backfilling — ~2,006 Enterprise pages (~56%) have identical content to Cloud
 - [ ] Sections most affected: `search` (673), `alert-and-respond` (272), `spl-search-reference` (203)
 
-### ES crawl failure investigation
-- [ ] Run: `sqlite3 data/splunk_docs.db "SELECT url, error FROM crawl_state WHERE status='failed';"`
-- [ ] Determine if persistent failures are dead pages (404) or transient errors
-
 ---
 
 ## ⚫ Priority 3 — Future / optional
 
 - [ ] **'Dead' URL status for permanent 404s** — currently URLs that 404 are stored as `status='failed'` and retried on every run. Adding a `'dead'` status (set when HTTP 404 is received) would exclude those URLs from `get_failed_urls()` and `get_visited_urls()`, stopping them being retried forever.
-- [ ] **Weekly full re-fetch for content change detection** — currently incremental mode skips pages already in `crawl_state` as 'fetched', so updated docs are never re-indexed. Options:
-  - Use sitemap `<lastmod>` in normal (non-`--full`) mode: re-queue pages where `lastmod > last_crawl_timestamp` (already fetched from sitemap; just need to remove the `if full and` guard in `crawler.py`). Works for Lantern; no help for sources without sitemaps.
-  - Add a `--rehash` mode: re-fetch all pages and compare HTML hash, re-extract only on change.
-  - Simplest: run weekly cron with `--full` but skip re-embedding when hash unchanged.
 - [ ] **SPL examples library** — `spl_examples` table + `search_spl` MCP tool (schema stub already in `db.py`)
 - [ ] **Add ITSI, SOAR, Observability** — most-requested missing products
-- [ ] **splunk-setup version selection UI Item 9** — ✅ Already done
+
+---
+
+## ✅ Done (2026-04-25)
+
+### Lantern crawl fix
+- `config.py`: added `https://lantern.splunk.com/hc` to `_LANTERN_BLOCKED` (auth-gated Help Center section)
+- `crawler.py`: added auth-redirect detection — 4xx after off-domain redirect counts as skipped, not failed
+
+### ES 8.5 page count investigation
+- Confirmed 738 is correct and complete: all 14 sections on the ES 8.5 landing page are found via BFS
+- The ~1,275 expected figure was a bad estimate; 738 is the real page count
+
+### ES 8.4 page count investigation
+- Root cause identified: `api-reference`, `common-information-model`, and most of `pci-compliance` are missing because they're only linked with `/8.5/` version segments on the live site
+- See Priority 1 fix above
 
 ---
 
@@ -68,7 +62,11 @@ _Last updated: 2026-04-23_
 - `setup.py`: clean up stale WAL/SHM files after merge temp rename
 - `.gitignore`: added `*.tmp`, `*.tmp-wal`, `*.tmp-shm` patterns for merge temp files
 - `crawl-and-release.yml`: merge step now skips missing per-source DBs instead of failing
-- `crawl-and-release.yml`: release body now lists all 9 sources including Enterprise 10.1 and Cloud 10.2
+
+### GHA re-run
+- Triggered and verified: all sources except Lantern succeeded; Lantern fixed 2026-04-25
+- ES 8.3 confirmed working (351 pages) — prior "0 pages" bug fixed in earlier session
+- Enterprise 10.1 and Cloud 10.2 dropped from crawl matrix (seeding problem unsolvable without major rework; n−1 coverage maintained via ES 8.3/8.4 and Cloud/Enterprise current+1 back version)
 
 ---
 
