@@ -143,6 +143,7 @@ _LANTERN_BLOCKED = [
     "https://lantern.splunk.com/User:",
     "https://lantern.splunk.com/deki/",
     "https://lantern.splunk.com/@",
+    "https://lantern.splunk.com/hc",  # auth-gated Help Center section
 ]
 
 PHASE1_SOURCES: list[CrawlSource] = [

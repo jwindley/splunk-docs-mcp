@@ -282,6 +282,21 @@ async def _process_url(
                 break
 
     if last_exc is not None:
+        # A 4xx after being redirected outside the source URL prefix means the
+        # page is auth-gated (e.g. Lantern content pages that redirected to
+        # /@app/auth/ → login.splunk.com and got a 403).  Count as skipped so
+        # it doesn't inflate the failure rate.
+        if (
+            isinstance(last_exc, httpx.HTTPStatusError)
+            and 400 <= last_exc.response.status_code < 500
+            and not str(last_exc.response.url).startswith(source.url_prefix)
+        ):
+            logger.warning(f"  AUTH-SKIP {url}: redirected to auth endpoint, skipping")
+            async with conn_lock:
+                stats.skipped += 1
+                mark_crawl_state(conn, url, source.source_id, "skipped")
+            await asyncio.sleep(delay + (random.uniform(0, delay_jitter) if delay_jitter else 0))
+            return
         logger.warning(f"  FAIL {url}: {last_exc}")
         async with conn_lock:
             stats.failed += 1

@@ -20,18 +20,16 @@ Goal: **current released version + n−1** for each product. ITSI, SOAR, Observa
 
 | Source ID | Display Name | Version | Base URL | Pages (actual) | Status |
 |-----------|-------------|---------|----------|----------------|--------|
-| `enterprise-security` | Splunk Enterprise Security 8.5 | 8.5 | `help.splunk.com/en/splunk-enterprise-security-8/` | 738 | ⚠️ Low (expected ~1,275) |
-| `enterprise-security-8-4` | Splunk Enterprise Security 8.4 | 8.4 | `help.splunk.com/en/splunk-enterprise-security-8/` | 336 | ⚠️ Low (expected ~1,200) |
-| `enterprise-security-8-3` | Splunk Enterprise Security 8.3 | 8.3 | `help.splunk.com/en/splunk-enterprise-security-8/` | 0 | ❌ Seed strategy broken |
+| `enterprise-security` | Splunk Enterprise Security 8.5 | 8.5 | `help.splunk.com/en/splunk-enterprise-security-8/` | 722 | ⚠️ Low (expected ~1,275) |
+| `enterprise-security-8-4` | Splunk Enterprise Security 8.4 | 8.4 | `help.splunk.com/en/splunk-enterprise-security-8/` | 369 | ⚠️ Low (expected ~1,200) |
+| `enterprise-security-8-3` | Splunk Enterprise Security 8.3 | 8.3 | `help.splunk.com/en/splunk-enterprise-security-8/` | 351 | ✅ OK |
 | `admin-manual` | Splunk Configuration File Reference 10.2 | 10.2 | `help.splunk.com/en/data-management/splunk-enterprise-admin-manual/10.2/configuration-file-reference/` | 216 | ✅ OK |
 | `splunk-enterprise` | Splunk Enterprise 10.2 | 10.2 | `help.splunk.com/en/splunk-enterprise/` | 3,549 | ✅ OK |
-| `splunk-enterprise-10-1` | Splunk Enterprise 10.1 | 10.1 | `help.splunk.com/en/splunk-enterprise/` | 0 | ❌ Seed strategy broken |
 | `splunk-cloud` | Splunk Cloud Platform 10.3.2512 | 10.3.2512 | `help.splunk.com/en/splunk-cloud-platform/` | 2,658 | ✅ OK |
-| `splunk-cloud-10-2` | Splunk Cloud Platform 10.2 | 10.2 | `help.splunk.com/en/splunk-cloud-platform/` | 112 | ❌ Seed strategy broken |
-| `lantern` | Splunk Lantern | current | `lantern.splunk.com/` | 1,278 | ✅ OK |
+| `lantern` | Splunk Lantern | current | `lantern.splunk.com/` | 1,240 | ✅ OK (was failing due to auth-gated pages; fixed) |
 
-**Known issue — older version seeding (affects Enterprise 10.1, Cloud 10.2, ES 8.3):**
-Section-level seed URLs for older versions redirect to the current version's section page. All links on the redirect destination are for the current version and get rejected by the version filter. Fix needed: a better seeding strategy that can discover older-version page URLs directly (see TODO.md).
+**Known issue — older version seeding (affects Enterprise 10.1 and Cloud 10.2; ES 8.3 now works):**
+Section-level seed URLs for older versions redirect to the current version's section page. All links on the redirect destination are for the current version and get rejected by the version filter. ES 8.3 was fixed by direct page-URL seeds. Fix needed for Enterprise 10.1 and Cloud 10.2: a better seeding strategy that can discover older-version page URLs directly (see TODO.md).
 
 **Known issue — Enterprise vs Cloud dedup gap:**
 The current dedup uses raw HTML hash (`content_hash`). Enterprise and Cloud pages have different HTML (different URLs = different HTML structure), so their hashes differ even when extracted Markdown is identical. ~2,006 Enterprise pages (56%) share content with Cloud: `search` (673), `alert-and-respond` (272), `spl-search-reference` (203), `create-dashboards-and-reports` (176). Fix: add `content_md_hash` column and include in `run_dedup_pass()`.
