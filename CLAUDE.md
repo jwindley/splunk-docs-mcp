@@ -21,7 +21,7 @@ Goal: **current released version + n−1** for each product. ITSI, SOAR, Observa
 | Source ID | Display Name | Version | Base URL | Pages (actual) | Status |
 |-----------|-------------|---------|----------|----------------|--------|
 | `enterprise-security` | Splunk Enterprise Security 8.5 | 8.5 | `help.splunk.com/en/splunk-enterprise-security-8/` | 738 | ⚠️ Low (expected ~1,275) |
-| `enterprise-security-8-4` | Splunk Enterprise Security 8.4 | 8.4 | `help.splunk.com/en/splunk-enterprise-security-8/` | 369 | ⚠️ Low (expected ~1,200) |
+| `enterprise-security-8-4` | Splunk Enterprise Security 8.4 | 8.4 | `help.splunk.com/en/splunk-enterprise-security-8/` | 369 | ⚠️ Low — missing api-reference (~83 pages); api-reference/8.4 seed added, next crawl should reach ~450 |
 | `enterprise-security-8-3` | Splunk Enterprise Security 8.3 | 8.3 | `help.splunk.com/en/splunk-enterprise-security-8/` | 351 | ✅ OK |
 | `admin-manual` | Splunk Configuration File Reference 10.2 | 10.2 | `help.splunk.com/en/data-management/splunk-enterprise-admin-manual/10.2/configuration-file-reference/` | 216 | ✅ OK |
 | `splunk-enterprise` | Splunk Enterprise 10.2 | 10.2 | `help.splunk.com/en/splunk-enterprise/` | 3,549 | ✅ OK |

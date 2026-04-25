@@ -216,6 +216,9 @@ PHASE1_SOURCES: list[CrawlSource] = [
                 f"https://help.splunk.com/en/splunk-enterprise-security-8/{s}/8.4"
                 for s in _ES_SECTIONS
             ],
+            # api-reference exists for 8.4 but is only linked from 8.5 nav;
+            # common-information-model and pci-compliance are 8.5-only (404 on 8.4).
+            "https://help.splunk.com/en/splunk-enterprise-security-8/api-reference/8.4",
         ],
         url_prefix="https://help.splunk.com/en/splunk-enterprise-security-8/",
         blocked_path_prefixes=_HELP_BLOCKED,
