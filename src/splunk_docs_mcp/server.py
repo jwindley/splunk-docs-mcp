@@ -154,11 +154,13 @@ mcp = FastMCP(
         "   → get_page(url) if anything useful appears\n"
         "   STOP. Do not reformulate and search again. Report what was found.\n\n"
 
-        "HARD LIMITS — never exceed these per question:\n"
+        "CALL BUDGET — default targets per question:\n"
         "  • 2 search calls total (not 2 of each tool — 2 across both)\n"
         "  • 1 list_sections call\n"
-        "  • 3 get_page calls (unless the user explicitly requests a full survey)\n"
-        "  • 0 get_index_info calls (only call if the user asks about index status)\n\n"
+        "  • 4 get_page calls (simple questions need 1–2; complex multi-part questions may use up to 4)\n"
+        "  • 0 get_index_info calls (only call if the user asks about index status)\n"
+        "  These are defaults, not hard rules. Use judgement: if an additional call would "
+        "meaningfully improve the answer, make it. Do not make extra calls speculatively.\n\n"
 
         "CONFIDENCE AND UNCERTAINTY — mandatory:\n"
         "  • If retrieved pages do not directly address the question, say so explicitly "
