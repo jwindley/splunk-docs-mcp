@@ -65,28 +65,35 @@ logger = logging.getLogger(__name__)
 
 logger.info("Loading sentence-transformers model (all-MiniLM-L6-v2)…")
 _embed_model = SentenceTransformer("all-MiniLM-L6-v2")
+# Pre-warm PyTorch JIT with several representative-length strings.
+# A single short encode pre-warms the tokenizer but leaves longer-input JIT
+# paths uncompiled — first real queries then take ~450ms instead of ~50ms.
+# Batch-encoding five typical-length queries fully compiles all JIT paths.
+_embed_model.encode(
+    [
+        "warmup",
+        "how to configure correlation searches in enterprise security",
+        "transforms.conf configuration file reference lookup table",
+        "search head cluster replication factor peer nodes troubleshooting",
+        "alert actions notable events threat intelligence lookup dashboard",
+    ],
+    normalize_embeddings=True,
+)
 logger.info("Embedding model ready.")
 
 # ---------------------------------------------------------------------------
-# DB singleton — opened once on first use, reused across all tool calls
+# DB + embedding matrix — loaded at startup, not lazily.
+# Avoids a ~1s cold-start penalty on the very first tool call.
 # ---------------------------------------------------------------------------
 
-_db: sqlite3.Connection | None = None
-
-# Embedding matrix cache — loaded once on first DB connection.
-# Restart the MCP server after running splunk-crawl to refresh this cache.
-_embed_matrix: "np.ndarray | None" = None
-_embed_rows: "list[dict] | None" = None
+logger.info("Opening database and loading embedding matrix…")
+_db: sqlite3.Connection = get_connection(DB_PATH)
+init_db(_db)
+_embed_matrix, _embed_rows = get_all_embeddings(_db)
+logger.info("Embedding cache ready (%d vectors).", _embed_matrix.shape[0])
 
 
 def _get_db() -> sqlite3.Connection:
-    global _db, _embed_matrix, _embed_rows
-    if _db is None:
-        _db = get_connection(DB_PATH)
-        init_db(_db)
-        logger.info("Loading embedding matrix into cache…")
-        _embed_matrix, _embed_rows = get_all_embeddings(_db)
-        logger.info("Embedding cache ready (%d vectors).", _embed_matrix.shape[0])
     return _db
 
 
@@ -302,8 +309,7 @@ def search_docs_semantic(
             valid = ", ".join(SOURCES_BY_ID.keys())
             return [{"error": f"Unknown source '{source}'. Valid options: {valid}"}]
 
-        _get_db()  # ensure cache is initialised
-        if _embed_matrix is None or _embed_matrix.shape[0] == 0:
+        if _embed_matrix.shape[0] == 0:
             return [{
                 "message": (
                     "No embeddings found. Run 'uv run splunk-crawl' to generate them. "
