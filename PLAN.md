@@ -52,15 +52,7 @@ _Last updated: 2026-04-25 (Lantern fix, ES page count investigation, stale items
 
 ## Known Issues
 
-### 1. ES 8.4 — incomplete coverage of version-specific sections
-
-**Symptom:** ES 8.4 = 369 pages vs ES 8.5's 738. Missing sections: `api-reference` (83 pages in 8.5), `common-information-model` (66), and most of `splunk-app-for-pci-compliance` (183 in 8.5, only 6 in 8.4).
-
-**Root cause:** Those sections are only linked from the live site with `/8.5/` version segments. BFS from ES 8.4 seeds never discovers them because all cross-section nav links point to 8.5.
-
-**Fix:** Add direct section-entry seeds for the missing 8.4 sections (e.g. `splunk-app-for-pci-compliance/user-manual/8.4`), same approach that fixed ES 8.3.
-
-### 2. Enterprise vs Cloud dedup gap
+### 1. Enterprise vs Cloud dedup gap
 
 **Symptom:** The current dedup (`run_dedup_pass`) is based on raw HTML hash (`content_hash`). Enterprise and Cloud pages are served from different URLs so their HTML hashes differ even when extracted Markdown is identical.
 
@@ -74,7 +66,6 @@ _Last updated: 2026-04-25 (Lantern fix, ES page count investigation, stale items
 
 | Item | Status |
 |------|--------|
-| ES 8.4 section seeds for missing sections | ❌ Not started |
 | Enterprise vs Cloud dedup via `content_md_hash` | ❌ Not started |
 
 ---

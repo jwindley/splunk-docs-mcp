@@ -1,18 +1,10 @@
 # TODO — splunk-docs-mcp
 
-_Last updated: 2026-04-25_
+_Last updated: 2026-04-26_
 
 ---
 
-## 🔴 Priority 1 — Do next
-
-### Fix ES 8.4 incomplete coverage
-- [ ] ES 8.4 gets 369 pages vs ES 8.5's 738 — confirmed missing `api-reference` (83 pages in 8.5), `common-information-model` (66), and most of `splunk-app-for-pci-compliance` (183→6)
-- [ ] Root cause: those sections only have `/8.5/` versioned links on the live site; BFS from 8.4 seeds never discovers them
-- [ ] Fix: add direct section seeds for the missing 8.4 sections (e.g. `splunk-app-for-pci-compliance/user-manual/8.4`) so BFS can enter them directly
-- [ ] Re-crawl with `--full` after adding seeds, verify page count improves
-
----
+## 🟡 Priority 1 — Nice to have
 
 ## 🟡 Priority 2 — Nice to have
 
@@ -30,6 +22,16 @@ _Last updated: 2026-04-25_
 - [ ] **'Dead' URL status for permanent 404s** — currently URLs that 404 are stored as `status='failed'` and retried on every run. Adding a `'dead'` status (set when HTTP 404 is received) would exclude those URLs from `get_failed_urls()` and `get_visited_urls()`, stopping them being retried forever.
 - [ ] **SPL examples library** — `spl_examples` table + `search_spl` MCP tool (schema stub already in `db.py`)
 - [ ] **Add ITSI, SOAR, Observability** — most-requested missing products
+
+---
+
+## ✅ Done (2026-04-26)
+
+### ES 8.4 coverage — confirmed correct
+- Sitemap ground truth: ES 8.5 = 566, ES 8.4 = 308, ES 8.3 = 290 (our BFS exceeds these in all cases)
+- `common-information-model` and `splunk-app-for-pci-compliance` are 8.5-only sections (404 on 8.4) — not missing pages, just new sections added in 8.5
+- Added `api-reference/8.4` seed; 8.4 now crawls 431 pages (sitemap has 308, we exceed it)
+- ES 8.4 page count is lower than 8.5 because 8.5 genuinely added ~330 pages across three new sections
 
 ---
 
