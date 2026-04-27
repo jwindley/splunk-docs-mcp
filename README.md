@@ -1,12 +1,12 @@
 # splunk-docs-mcp
 
-An MCP server that gives AI assistants accurate, version-specific Splunk documentation — because Claude hallucinates on Splunk questions.
+An MCP server that gives AI assistants accurate, version-specific Splunk documentation — AI assistants can hallucinate on Splunk specifics, and training data goes stale.
 
 ---
 
 ## Why this exists
 
-Claude's training data for Splunk is outdated, incomplete, and wrong on version-specific details. Ask it something like "how do I configure correlation searches in ES 8.5?" and it will give you a confident answer that applies to a completely different version, or just makes things up.
+AI assistants sometimes hallucinate on Splunk questions — giving confident answers that apply to a different version, or that are simply made up. Training data also goes stale quickly, so even correct answers may refer to old behaviour.
 
 This server fixes that by giving Claude (or any MCP-compatible client) access to the **actual documentation**, crawled directly from `help.splunk.com` and `lantern.splunk.com`. With it connected, Claude looks up the real docs before answering instead of guessing from training data.
 
