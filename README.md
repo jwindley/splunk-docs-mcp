@@ -15,7 +15,7 @@ It can answer questions like:
 - "How do I configure correlation searches in ES 8.5?"
 - "What fields does `transforms.conf` support?"
 - "What's the difference between `notable` and `risk` in Enterprise Security?"
-- "What changed between ES 8.3 and 8.5?"
+- "What's the precise workflow for enabling cloud-to-enterprise federation?"
 
 The database is rebuilt weekly by GitHub Actions and published as a release asset. You download it once with `splunk-setup` and the MCP server reads it locally — no internet access needed at query time.
 
@@ -42,6 +42,11 @@ Claude will not always consult the MCP server automatically. To ensure it uses t
 > "You have a splunk-docs MCP server connected with indexed Splunk documentation. Use it for all Splunk-related questions before answering from your training data."
 
 Save this as a custom instruction so it applies to every session: in Claude Desktop go to **Settings → Custom Instructions**.
+
+You can also target specific products or versions in your question — Claude will pass these as filters to the search tools:
+
+- Ask about "ES 8.4" or "Splunk Cloud 10.3" and it will filter to that version automatically.
+- Mention "Enterprise Security" or "admin manual" and it will search that source specifically.
 
 ---
 
@@ -98,7 +103,7 @@ This shows a menu of available sources so you can download only what you need, o
 
 **4. Configure your MCP client**
 
-Add this to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS) or Claude Code project settings (`.claude/settings.json`):
+Add this to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS), your global Claude Code config (`~/.claude/settings.json`), or a per-project Claude Code config (`.claude/settings.json`):
 
 ```json
 {
@@ -131,44 +136,15 @@ The goal is to keep the **current released version plus the previous version (n�
 
 ---
 
-## MCP tools
+## Refreshing the database
 
-| Tool | What it does |
-|------|-------------|
-| `search_docs` | BM25 keyword search — best for exact terms, config key names, quoted phrases |
-| `search_docs_semantic` | Semantic/vector search — best for natural-language or concept queries |
-| `get_page` | Full Markdown content of a page by exact URL |
-| `list_sections` | Lists all sources, sections, and page counts in the index |
-| `browse_section` | All pages in a section (titles and URLs) |
-| `get_index_info` | DB stats: total pages, sources indexed, last crawl time |
-
-### Filtering by source and version
-
-Both `search_docs` and `search_docs_semantic` accept optional `source` and `version` parameters:
-
-```
-search_docs("correlation search", source="enterprise-security", version="8.5")
-search_docs("transforms.conf", source="admin-manual")
-search_docs_semantic("reduce false positives", version="8.4")
-```
-
-Use `source=` to target a specific product, `version=` to target a specific release, or both together for precision. Omit both to search across all sources.
-
-**Note:** when no `version=` filter is specified, pages with identical content across sources are automatically de-duplicated so you don't see the same article twice.
-
----
-
-## Data freshness
-
-The database is rebuilt every Sunday at 02:00 UTC and published as a release tagged `data-YYYY-MM-DD`. `splunk-setup` always downloads the latest release.
-
-To refresh your local database:
+The database is rebuilt every Sunday at 02:00 UTC. To update your local copy:
 
 ```bash
 uv run splunk-setup
 ```
 
-After updating, **restart the MCP server** (restart Claude Desktop or reload the MCP connection in your editor). The semantic search index is loaded into memory at startup and won't reflect the new database until the server restarts.
+After updating, restart the MCP server (restart Claude Desktop or reload the MCP connection in your editor). The semantic search index is loaded into memory at startup and won't reflect the new database until the server restarts.
 
 ---
 
@@ -183,25 +159,11 @@ uv run splunk-crawl
 # Single source
 uv run splunk-crawl --sources enterprise-security
 
-# Single section (fast — ~30 seconds, good for development)
+# Single section (fast — good for development)
 uv run splunk-crawl --sources enterprise-security --section user-guide
-
-# Rebuild chunks only (no re-crawl)
-uv run splunk-crawl --rechunk
 
 # Force re-extract + re-chunk + re-embed everything
 uv run splunk-crawl --full
-```
-
-Other flags:
-
-```
---verbose              debug output per page
---concurrency N        parallel workers (default: 3)
---delay N              per-request delay in seconds (default: 0.5)
---delay-jitter N       add random jitter up to N seconds per request
---db PATH              custom DB path
---docs-dir PATH        custom markdown output directory
 ```
 
 The crawl writes `data/splunk_docs.db` and Markdown files to `data/docs/`. Both are gitignored.
