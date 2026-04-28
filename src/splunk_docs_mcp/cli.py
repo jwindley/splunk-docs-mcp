@@ -117,6 +117,18 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
+        "--derive-db",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Path to a DB to read parent URLs from when deriving seeds for older "
+            "version sources (e.g. point at the 8.5 DB when crawling 8.4). "
+            "Defaults to --db (same DB). Override in CI where each source has its "
+            "own DB and the parent source DB is a separate artifact."
+        ),
+    )
+    p.add_argument(
         "--verbose", "-v",
         action="store_true",
         default=False,
@@ -141,27 +153,36 @@ async def _run(args: argparse.Namespace) -> int:
         if source.derive_from:
             parent = SOURCES_BY_ID.get(source.derive_from)
             if parent:
-                conn = db_module.get_connection(args.db)
-                db_module.init_db(conn)
-                parent_urls = get_crawled_urls_for_source(conn, source.derive_from)
-                conn.close()
-                extra_seeds = [
-                    url.replace(f"/{parent.version}/", f"/{source.version}/")
-                    for url in parent_urls
-                    if f"/{parent.version}/" in url
-                ]
-                if extra_seeds:
-                    logger.info(
-                        "[%s] URL derivation: %d candidate URLs from '%s' (/%s/ → /%s/)",
-                        source.source_id, len(extra_seeds), source.derive_from,
-                        parent.version, source.version,
+                derive_db_path = args.derive_db or args.db
+                if args.derive_db and not args.derive_db.exists():
+                    logger.warning(
+                        "[%s] URL derivation: --derive-db '%s' not found — "
+                        "skipping derivation, falling back to BFS seeds only.",
+                        source.source_id, args.derive_db,
                     )
                 else:
-                    logger.warning(
-                        "[%s] URL derivation: no fetched URLs found for '%s' — "
-                        "crawl that source first for full coverage.",
-                        source.source_id, source.derive_from,
-                    )
+                    derive_conn = db_module.get_connection(derive_db_path)
+                    db_module.init_db(derive_conn)
+                    parent_urls = get_crawled_urls_for_source(derive_conn, source.derive_from)
+                    if args.derive_db:
+                        derive_conn.close()
+                    extra_seeds = [
+                        url.replace(f"/{parent.version}/", f"/{source.version}/")
+                        for url in parent_urls
+                        if f"/{parent.version}/" in url
+                    ]
+                    if extra_seeds:
+                        logger.info(
+                            "[%s] URL derivation: %d candidate URLs from '%s' (/%s/ → /%s/)",
+                            source.source_id, len(extra_seeds), source.derive_from,
+                            parent.version, source.version,
+                        )
+                    else:
+                        logger.warning(
+                            "[%s] URL derivation: no fetched URLs found for '%s' — "
+                            "crawl that source first or pass --derive-db for full coverage.",
+                            source.source_id, source.derive_from,
+                        )
 
         stats = await crawl_source(
             source=source,

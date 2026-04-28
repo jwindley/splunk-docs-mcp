@@ -10,19 +10,15 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # One job per source — crawls in parallel, caches per-source DB incrementally
+  # Main crawl — all sources except ES 8.4/8.3 (those need the 8.5 DB first)
   # ---------------------------------------------------------------------------
   crawl:
-    # A source failing (e.g. site temporarily down) should not block the
-    # merge-and-release job — it merges whatever artifacts were uploaded.
     continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
         source:
           - enterprise-security
-          - enterprise-security-8-4
-          - enterprise-security-8-3
           - admin-manual
           - splunk-enterprise
           - splunk-cloud
@@ -45,17 +41,11 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: data/${{ matrix.source }}.db
-          # Restore from the most recent cache for this source (any run)
           key: splunk-db-${{ matrix.source }}-${{ github.run_id }}
           restore-keys: |
             splunk-db-${{ matrix.source }}-
 
       - name: Crawl ${{ matrix.source }}
-        # --full re-fetches all pages on every run so the index stays current.
-        # Pages whose raw HTML hasn't changed are skipped at the extract/embed
-        # stage (hash comparison), so only genuinely updated content is re-indexed.
-        # Without --full the cached crawl_state causes "Nothing to crawl" on every
-        # run after the first, meaning the index is never updated.
         run: uv run splunk-crawl --sources ${{ matrix.source }} --db data/${{ matrix.source }}.db --full
 
       - name: Save per-source DB cache
@@ -74,10 +64,77 @@ jobs:
           retention-days: 1
 
   # ---------------------------------------------------------------------------
-  # Aggregation — merge all per-source DBs (dedup runs inside merge), export, release
+  # Derived crawl — ES 8.4 and 8.3, seeded from the 8.5 DB via URL substitution.
+  # Runs after the main crawl so the enterprise-security (8.5) artifact is available.
+  # ---------------------------------------------------------------------------
+  crawl-derived:
+    needs: [crawl]
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        source:
+          - enterprise-security-8-4
+          - enterprise-security-8-3
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Restore per-source DB cache
+        uses: actions/cache/restore@v4
+        with:
+          path: data/${{ matrix.source }}.db
+          key: splunk-db-${{ matrix.source }}-${{ github.run_id }}
+          restore-keys: |
+            splunk-db-${{ matrix.source }}-
+
+      - name: Download enterprise-security (8.5) DB for URL derivation
+        # continue-on-error so the crawl still runs (with BFS seeds only) if
+        # the 8.5 job failed and didn't upload an artifact.
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: db-enterprise-security
+          path: data/
+
+      - name: Crawl ${{ matrix.source }}
+        run: |
+          uv run splunk-crawl \
+            --sources ${{ matrix.source }} \
+            --db data/${{ matrix.source }}.db \
+            --full \
+            --derive-db data/enterprise-security.db
+
+      - name: Save per-source DB cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/${{ matrix.source }}.db
+          key: splunk-db-${{ matrix.source }}-${{ github.run_id }}
+
+      - name: Upload per-source DB artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-${{ matrix.source }}
+          path: data/${{ matrix.source }}.db
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Aggregation — merge all per-source DBs, export, release
   # ---------------------------------------------------------------------------
   merge-and-release:
-    needs: [crawl]
+    needs: [crawl, crawl-derived]
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
@@ -100,9 +157,6 @@ jobs:
 
       - name: Merge per-source DBs
         run: |
-          # Build the list of DBs that actually exist — a crawl job may have
-          # failed or timed out, leaving its artifact absent. We merge whatever
-          # was uploaded rather than failing the whole release.
           DBS=""
           for src in enterprise-security enterprise-security-8-4 enterprise-security-8-3 \
                      admin-manual splunk-enterprise splunk-cloud lantern; do
