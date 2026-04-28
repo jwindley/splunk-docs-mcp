@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 from .config import DOCS_DIR, DB_PATH, PHASE1_SOURCES, SOURCES_BY_ID, CrawlSource
 from .crawler import crawl_source
 from . import db as db_module
+from .db import get_crawled_urls_for_source
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -136,6 +137,32 @@ async def _run(args: argparse.Namespace) -> int:
 
     all_stats = []
     for source in sources:
+        extra_seeds: list[str] = []
+        if source.derive_from:
+            parent = SOURCES_BY_ID.get(source.derive_from)
+            if parent:
+                conn = db_module.get_connection(args.db)
+                db_module.init_db(conn)
+                parent_urls = get_crawled_urls_for_source(conn, source.derive_from)
+                conn.close()
+                extra_seeds = [
+                    url.replace(f"/{parent.version}/", f"/{source.version}/")
+                    for url in parent_urls
+                    if f"/{parent.version}/" in url
+                ]
+                if extra_seeds:
+                    logger.info(
+                        "[%s] URL derivation: %d candidate URLs from '%s' (/%s/ → /%s/)",
+                        source.source_id, len(extra_seeds), source.derive_from,
+                        parent.version, source.version,
+                    )
+                else:
+                    logger.warning(
+                        "[%s] URL derivation: no fetched URLs found for '%s' — "
+                        "crawl that source first for full coverage.",
+                        source.source_id, source.derive_from,
+                    )
+
         stats = await crawl_source(
             source=source,
             db_path=args.db,
@@ -145,6 +172,7 @@ async def _run(args: argparse.Namespace) -> int:
             delay_jitter=args.delay_jitter,
             full=args.full,
             section_filter=args.section,
+            extra_seeds=extra_seeds,
         )
         all_stats.append(stats)
 

@@ -79,6 +79,16 @@ class CrawlSource:
     runs. BFS link discovery still runs as fallback for pages missing from the
     sitemap."""
 
+    derive_from: str | None = None
+    """Source ID to derive seed URLs from by substituting version segments.
+
+    Set this when the site's navigation always links to the current version
+    (e.g. help.splunk.com always links to 8.5 even when viewing 8.4 pages),
+    so BFS alone can't discover older-version pages.  The CLI loads all
+    successfully fetched URLs from the named source, replaces the parent
+    version string with this source's version, and adds the results as
+    extra seeds before BFS starts."""
+
 
 # ---------------------------------------------------------------------------
 # Phase 1 sources
@@ -222,14 +232,13 @@ PHASE1_SOURCES: list[CrawlSource] = [
         ],
         url_prefix="https://help.splunk.com/en/splunk-enterprise-security-8/",
         blocked_path_prefixes=_HELP_BLOCKED,
+        # help.splunk.com nav always links to 8.5; derive 8.4 URLs from 8.5 crawl.
+        derive_from="enterprise-security",
     ),
     CrawlSource(
         source_id="enterprise-security-8-3",
         display_name="Splunk Enterprise Security 8.3",
         version="8.3",
-        # Section seeds use the same pattern as 8.4 — /section/8.3 loads 8.3
-        # content directly (the earlier assumption that these redirect to 8.5
-        # was incorrect; 8.4 section seeds work identically and 8.3 should too).
         seed_urls=[
             "https://help.splunk.com/en/splunk-enterprise-security-8",
             *[
@@ -239,6 +248,8 @@ PHASE1_SOURCES: list[CrawlSource] = [
         ],
         url_prefix="https://help.splunk.com/en/splunk-enterprise-security-8/",
         blocked_path_prefixes=_HELP_BLOCKED,
+        # help.splunk.com nav always links to 8.5; derive 8.3 URLs from 8.5 crawl.
+        derive_from="enterprise-security",
     ),
     CrawlSource(
         source_id="lantern",

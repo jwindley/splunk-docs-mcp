@@ -88,6 +88,7 @@ async def crawl_source(
     delay_jitter: float = 0.0,
     full: bool = False,
     section_filter: str | None = None,
+    extra_seeds: list[str] | None = None,
 ) -> CrawlStats:
     """
     Crawl all pages for *source*, store Markdown files and update the DB.
@@ -153,6 +154,22 @@ async def crawl_source(
         if normalised and normalised not in visited:
             visited.add(normalised)
             await queue.put(normalised)
+
+    # Derived seeds: URLs from a parent source with the version segment substituted.
+    # Bypasses the BFS discovery limitation where help.splunk.com nav always links
+    # to the current version even when older-version content exists at predictable URLs.
+    if extra_seeds:
+        derived_queued = 0
+        for seed in extra_seeds:
+            normalised = _normalise_url(seed)
+            if normalised and normalised not in visited and _is_target_url(normalised, source, section_filter):
+                visited.add(normalised)
+                await queue.put(normalised)
+                derived_queued += 1
+        logger.info(
+            "[%s] Derived seeds: %d/%d queued (remainder already visited or filtered).",
+            source.source_id, derived_queued, len(extra_seeds),
+        )
 
     if queue.empty():
         logger.info(f"[{source.source_id}] Nothing to crawl — all seeds already visited.")
@@ -295,6 +312,19 @@ async def _process_url(
             async with conn_lock:
                 stats.skipped += 1
                 mark_crawl_state(conn, url, source.source_id, "skipped")
+            await asyncio.sleep(delay + (random.uniform(0, delay_jitter) if delay_jitter else 0))
+            return
+        # HTTP 404 means the page permanently doesn't exist (common for derived
+        # URLs when an older version doesn't have an equivalent page).  Mark as
+        # 'dead' so it is treated as visited and never retried.
+        if (
+            isinstance(last_exc, httpx.HTTPStatusError)
+            and last_exc.response.status_code == 404
+        ):
+            logger.debug(f"  DEAD {url}: HTTP 404")
+            async with conn_lock:
+                stats.skipped += 1
+                mark_crawl_state(conn, url, source.source_id, "dead")
             await asyncio.sleep(delay + (random.uniform(0, delay_jitter) if delay_jitter else 0))
             return
         logger.warning(f"  FAIL {url}: {last_exc}")

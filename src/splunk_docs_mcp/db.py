@@ -289,6 +289,19 @@ def get_failed_urls(conn: sqlite3.Connection, source_id: str) -> list[str]:
     return [row["url"] for row in rows]
 
 
+def get_crawled_urls_for_source(conn: sqlite3.Connection, source_id: str) -> list[str]:
+    """Return all successfully fetched URLs for source_id.
+
+    Used by the URL derivation pass: takes 8.5 URLs and substitutes the version
+    segment to generate candidate 8.4 / 8.3 seed URLs.
+    """
+    rows = conn.execute(
+        "SELECT url FROM crawl_state WHERE source = ? AND status = 'fetched'",
+        (source_id,),
+    ).fetchall()
+    return [row["url"] for row in rows]
+
+
 def merge_source_db(conn: sqlite3.Connection, source_db_path: Path) -> int:
     """Merge all documents and crawl_state rows from source_db_path into conn.
 
