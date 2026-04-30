@@ -29,6 +29,7 @@ matching FTS5 table.  The rest of the codebase is unaffected.
 """
 
 import hashlib
+import json
 import re
 import sqlite3
 from datetime import datetime, timezone
@@ -187,6 +188,27 @@ def init_db(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE documents ADD COLUMN is_duplicate INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
+
+    # Option B: content_md_hash + version_tags (migration for existing DBs) ----
+    # content_md_hash — SHA-256 of extracted Markdown; used for cross-version
+    # dedup (HTML differs but content is identical across Enterprise/Cloud).
+    # version_tags — JSON array of versions this row's content applies to,
+    # e.g. '["8.5","8.4"]' for a canonical row shared between two ES releases.
+    for ddl in (
+        "ALTER TABLE documents ADD COLUMN content_md_hash TEXT",
+        "ALTER TABLE documents ADD COLUMN version_tags TEXT",
+    ):
+        try:
+            conn.execute(ddl)
+        except sqlite3.OperationalError:
+            pass
+    try:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_documents_content_md_hash "
+            "ON documents(content_md_hash)"
+        )
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
 
 
@@ -218,27 +240,36 @@ def get_embedding_by_hash(conn: sqlite3.Connection, content_hash: str) -> bytes 
 
 def upsert_document(conn: sqlite3.Connection, doc: dict) -> None:
     """Insert or update a document row. The FTS5 triggers handle index sync."""
+    doc["content_md_hash"] = hashlib.sha256(doc["content_md"].encode()).hexdigest()
+    if "version_tags" not in doc:
+        doc["version_tags"] = json.dumps([doc["version"]])
     conn.execute(
         """
         INSERT INTO documents
             (url, title, source, version, section, subsection, slug,
-             file_path, content_md, content_hash, crawled_at)
+             file_path, content_md, content_hash, content_md_hash, version_tags, crawled_at)
         VALUES
             (:url, :title, :source, :version, :section, :subsection, :slug,
-             :file_path, :content_md, :content_hash, :crawled_at)
+             :file_path, :content_md, :content_hash, :content_md_hash, :version_tags, :crawled_at)
         ON CONFLICT(url) DO UPDATE SET
-            title        = excluded.title,
-            content_md   = excluded.content_md,
-            content_hash = excluded.content_hash,
-            crawled_at   = excluded.crawled_at,
-            file_path    = excluded.file_path,
-            section      = excluded.section,
-            subsection   = excluded.subsection,
-            slug         = excluded.slug,
-            has_chunks   = CASE
-                               WHEN excluded.content_hash != content_hash THEN 0
-                               ELSE has_chunks
-                           END
+            title            = excluded.title,
+            content_md       = excluded.content_md,
+            content_hash     = excluded.content_hash,
+            content_md_hash  = excluded.content_md_hash,
+            version_tags     = CASE
+                                   WHEN excluded.content_md_hash != COALESCE(content_md_hash, '')
+                                   THEN excluded.version_tags
+                                   ELSE version_tags
+                               END,
+            crawled_at       = excluded.crawled_at,
+            file_path        = excluded.file_path,
+            section          = excluded.section,
+            subsection       = excluded.subsection,
+            slug             = excluded.slug,
+            has_chunks       = CASE
+                                   WHEN excluded.content_hash != content_hash THEN 0
+                                   ELSE has_chunks
+                               END
         """,
         doc,
     )
@@ -316,12 +347,12 @@ def merge_source_db(conn: sqlite3.Connection, source_db_path: Path) -> int:
         """
         INSERT OR IGNORE INTO documents
             (url, title, source, version, section, subsection, slug,
-             file_path, content_md, content_hash, crawled_at,
-             embedding, has_chunks, chunk_of, chunk_index)
+             file_path, content_md, content_hash, content_md_hash, version_tags,
+             crawled_at, embedding, has_chunks, chunk_of, chunk_index)
         SELECT
             url, title, source, version, section, subsection, slug,
-            file_path, content_md, content_hash, crawled_at,
-            embedding, has_chunks, chunk_of, chunk_index
+            file_path, content_md, content_hash, content_md_hash, version_tags,
+            crawled_at, embedding, has_chunks, chunk_of, chunk_index
         FROM src.documents
         """
     )
@@ -365,13 +396,17 @@ def run_dedup_pass(conn: sqlite3.Connection) -> int:
     """
     conn.execute("UPDATE documents SET is_duplicate = 0")
 
-    # Find content hashes present in more than one source (parent rows only)
+    # Find content-md hashes present in more than one source (parent rows only).
+    # content_md_hash compares extracted Markdown, catching cases where the raw
+    # HTML differs (e.g. different URLs) but the page content is identical —
+    # the main Enterprise/Cloud overlap scenario.  Fall back to content_hash for
+    # rows that pre-date Option B and have no content_md_hash yet.
     dup_rows = conn.execute(
         """
-        SELECT content_hash
+        SELECT COALESCE(content_md_hash, content_hash) AS dedup_hash
         FROM documents
         WHERE chunk_of IS NULL
-        GROUP BY content_hash
+        GROUP BY COALESCE(content_md_hash, content_hash)
         HAVING COUNT(DISTINCT source) > 1
         """
     ).fetchall()
@@ -380,9 +415,12 @@ def run_dedup_pass(conn: sqlite3.Connection) -> int:
     total = 0
 
     for row in dup_rows:
-        ch = row["content_hash"]
+        ch = row["dedup_hash"]
         parents = conn.execute(
-            "SELECT id, url, source FROM documents WHERE content_hash = ? AND chunk_of IS NULL",
+            """
+            SELECT id, url, source FROM documents
+            WHERE COALESCE(content_md_hash, content_hash) = ? AND chunk_of IS NULL
+            """,
             (ch,),
         ).fetchall()
         winner = min(parents, key=lambda r: priority.get(r["source"], 999))
@@ -395,6 +433,80 @@ def run_dedup_pass(conn: sqlite3.Connection) -> int:
                 total += 1
 
     conn.commit()
+    return total
+
+
+def run_version_merge_pass(
+    conn: sqlite3.Connection,
+    source_pairs: list[tuple[str, str]],
+) -> int:
+    """
+    Collapse identical cross-version content into a single canonical row.
+
+    For each (derived_source_id, parent_source_id) pair (e.g. ES 8.4 → ES 8.5):
+    - If a derived row's content_md_hash matches a parent row, the derived row is
+      deleted and the parent row's version_tags is updated to include the derived
+      version (e.g. ["8.5", "8.4"]).
+    - If there is no match (unique content), the derived row is kept as-is.
+
+    Must be called BEFORE the FTS5 rebuild in merge_dbs so the rebuild reflects
+    the final row set.  The is_duplicate dedup pass should run after this.
+
+    Returns the number of derived rows merged (deleted).
+    """
+    total = 0
+
+    for derived_source, parent_source in source_pairs:
+        derived_ver_row = conn.execute(
+            "SELECT DISTINCT version FROM documents "
+            "WHERE source = ? AND chunk_of IS NULL LIMIT 1",
+            (derived_source,),
+        ).fetchone()
+        if not derived_ver_row:
+            continue
+        derived_version = derived_ver_row["version"]
+
+        parent_rows = conn.execute(
+            "SELECT id, url, version, content_md_hash, version_tags "
+            "FROM documents WHERE source = ? AND chunk_of IS NULL AND content_md_hash IS NOT NULL",
+            (parent_source,),
+        ).fetchall()
+        parent_map: dict[str, dict] = {
+            r["content_md_hash"]: dict(r) for r in parent_rows
+        }
+
+        derived_rows = conn.execute(
+            "SELECT id, url, content_md_hash "
+            "FROM documents WHERE source = ? AND chunk_of IS NULL AND content_md_hash IS NOT NULL",
+            (derived_source,),
+        ).fetchall()
+
+        for derived in derived_rows:
+            cmh = derived["content_md_hash"]
+            if cmh not in parent_map:
+                continue
+            parent = parent_map[cmh]
+
+            try:
+                tags = json.loads(parent["version_tags"] or "[]")
+            except (json.JSONDecodeError, TypeError):
+                tags = [parent["version"]]
+            if derived_version not in tags:
+                tags.append(derived_version)
+            new_tags = json.dumps(tags)
+            conn.execute(
+                "UPDATE documents SET version_tags = ? WHERE id = ?",
+                (new_tags, parent["id"]),
+            )
+            parent_map[cmh]["version_tags"] = new_tags
+
+            # Delete derived row and its chunks
+            conn.execute("DELETE FROM documents WHERE chunk_of = ?", (derived["url"],))
+            conn.execute("DELETE FROM documents WHERE id = ?", (derived["id"],))
+            total += 1
+
+        conn.commit()
+
     return total
 
 
@@ -500,7 +612,7 @@ def get_documents_needing_chunking(
     return conn.execute(
         f"""
         SELECT id, url, title, source, version, section, subsection, slug,
-               file_path, content_md, content_hash, crawled_at
+               file_path, content_md, content_hash, content_md_hash, version_tags, crawled_at
         FROM documents
         WHERE has_chunks = 0
           AND chunk_of IS NULL
@@ -536,18 +648,21 @@ def chunk_document(
     for i, chunk_text in enumerate(chunks):
         chunk_url = f"{parent['url']}#chunk-{i}"
         chunk_hash = hashlib.sha256(chunk_text.encode()).hexdigest()
+        chunk_md_hash = hashlib.sha256(chunk_text.encode()).hexdigest()
         conn.execute(
             """
             INSERT INTO documents
                 (url, title, source, version, section, subsection, slug,
-                 file_path, content_md, content_hash, crawled_at,
-                 has_chunks, chunk_of, chunk_index)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+                 file_path, content_md, content_hash, content_md_hash, version_tags,
+                 crawled_at, has_chunks, chunk_of, chunk_index)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
             ON CONFLICT(url) DO UPDATE SET
-                content_md   = excluded.content_md,
-                content_hash = excluded.content_hash,
-                chunk_of     = excluded.chunk_of,
-                chunk_index  = excluded.chunk_index
+                content_md      = excluded.content_md,
+                content_hash    = excluded.content_hash,
+                content_md_hash = excluded.content_md_hash,
+                version_tags    = excluded.version_tags,
+                chunk_of        = excluded.chunk_of,
+                chunk_index     = excluded.chunk_index
             """,
             (
                 chunk_url,
@@ -560,6 +675,8 @@ def chunk_document(
                 parent["file_path"],
                 chunk_text,
                 chunk_hash,
+                chunk_md_hash,
+                parent.get("version_tags") or json.dumps([parent["version"]]),
                 parent["crawled_at"],
                 parent["url"],
                 i,
@@ -595,7 +712,13 @@ def search_docs(
         filters += " AND d.source = ?"
         params.append(source)
     if version:
-        filters += " AND d.version = ?"
+        # Match rows that are either the canonical version or have been tagged
+        # (version_tags) as also applying to this version via the merge pass.
+        filters += (
+            " AND (d.version = ? OR EXISTS ("
+            "SELECT 1 FROM json_each(d.version_tags) jt WHERE jt.value = ?))"
+        )
+        params.append(version)
         params.append(version)
     else:
         # Without a version filter the caller wants general results — suppress
@@ -824,15 +947,22 @@ def get_all_embeddings(
 
     db_rows = conn.execute(
         "SELECT id, url, title, source, version, section, chunk_of, crawled_at, "
-        "is_duplicate, embedding "
+        "is_duplicate, version_tags, embedding "
         "FROM documents WHERE embedding IS NOT NULL AND has_chunks = 0"
     ).fetchall()
 
     if not db_rows:
         return np.empty((0, 384), dtype=np.float32), []
 
-    meta = [
-        {
+    meta = []
+    for r in db_rows:
+        try:
+            vtags: list[str] = json.loads(r["version_tags"] or "[]")
+        except (json.JSONDecodeError, TypeError):
+            vtags = [r["version"]]
+        if not vtags:
+            vtags = [r["version"]]
+        meta.append({
             "url": r["url"],
             "title": r["title"],
             "source": r["source"],
@@ -841,9 +971,8 @@ def get_all_embeddings(
             "chunk_of": r["chunk_of"],
             "crawled_at": r["crawled_at"],
             "is_duplicate": bool(r["is_duplicate"]),
-        }
-        for r in db_rows
-    ]
+            "version_tags": vtags,
+        })
     matrix = np.stack(
         [np.frombuffer(r["embedding"], dtype=np.float32) for r in db_rows]
     )
@@ -874,7 +1003,11 @@ def search_docs_semantic_from_matrix(
     if source:
         mask &= np.array([r["source"] == source for r in rows])
     if version:
-        mask &= np.array([r["version"] == version for r in rows])
+        # Match canonical rows for this version OR rows whose version_tags include it.
+        mask &= np.array([
+            r["version"] == version or version in r.get("version_tags", [])
+            for r in rows
+        ])
     else:
         # No version filter → suppress cross-source duplicates (same logic as FTS search)
         mask &= np.array([not r["is_duplicate"] for r in rows])

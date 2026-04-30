@@ -340,3 +340,16 @@ PHASE1_SOURCES: list[CrawlSource] = [
 ]
 
 SOURCES_BY_ID: dict[str, CrawlSource] = {s.source_id: s for s in PHASE1_SOURCES}
+
+
+def get_source_version_pairs() -> list[tuple[str, str]]:
+    """Return (derived_source_id, parent_source_id) pairs for the version merge pass.
+
+    Used by merge_dbs to collapse identical cross-version content into single
+    canonical rows tagged with multiple versions via version_tags.
+    """
+    return [
+        (s.source_id, s.derive_from)
+        for s in PHASE1_SOURCES
+        if s.derive_from
+    ]

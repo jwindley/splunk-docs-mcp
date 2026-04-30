@@ -24,7 +24,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .config import DB_PATH, SOURCES_BY_ID
+from .config import DB_PATH, SOURCES_BY_ID, get_source_version_pairs
 from . import db as db_module
 
 
@@ -44,6 +44,15 @@ def merge_dbs(source_db_paths: list[Path], output_path: Path) -> None:
         print(f"  {src_path.name}: {count} rows inserted")
         total += count
 
+    source_pairs = get_source_version_pairs()
+    if source_pairs:
+        print("Running cross-version content merge (Option B)…")
+        n_merged = db_module.run_version_merge_pass(conn, source_pairs)
+        if n_merged:
+            print(f"Version merge complete — {n_merged} identical rows collapsed into parent rows")
+        else:
+            print("Version merge complete — no duplicate content found across versions")
+
     print("Rebuilding FTS5 index…")
     conn.execute("INSERT INTO documents_fts(documents_fts) VALUES('rebuild')")
     conn.commit()
@@ -60,6 +69,10 @@ def export_sources(merged_db_path: Path, export_dir: Path) -> None:
     export_dir.mkdir(parents=True, exist_ok=True)
     conn = db_module.get_connection(merged_db_path)
 
+    # Build a mapping of derived→parent so we can include shared rows in n-1 exports.
+    from .config import get_source_version_pairs  # noqa: PLC0415
+    derived_to_parent: dict[str, str] = dict(get_source_version_pairs())
+
     source_ids = [
         r[0]
         for r in conn.execute(
@@ -71,36 +84,53 @@ def export_sources(merged_db_path: Path, export_dir: Path) -> None:
     total_pages = 0
 
     for source_id in source_ids:
+        src_cfg = SOURCES_BY_ID.get(source_id)
+        derived_version = src_cfg.version if src_cfg else None
+        parent_source = derived_to_parent.get(source_id)
+
         out_path = export_dir / f"splunk_docs_{source_id}.db"
-        _export_source_db(conn, source_id, out_path)
+        _export_source_db(conn, source_id, out_path,
+                          parent_source=parent_source,
+                          derived_version=derived_version)
         size = out_path.stat().st_size
 
-        # Count real pages (unchunked leaves + chunked parents)
-        pages = conn.execute(
+        # Count own rows (unique to this source)
+        own_pages = conn.execute(
             "SELECT COUNT(*) FROM documents WHERE source = ? AND chunk_of IS NULL",
             (source_id,),
         ).fetchone()[0]
-        chunks = conn.execute(
+        own_chunks = conn.execute(
             "SELECT COUNT(*) FROM documents WHERE source = ? AND chunk_of IS NOT NULL",
             (source_id,),
         ).fetchone()[0]
+
+        # Count shared rows from parent that were merged and tagged with this version
+        shared_pages = 0
+        if parent_source and derived_version:
+            shared_pages = conn.execute(
+                "SELECT COUNT(*) FROM documents "
+                "WHERE source = ? AND chunk_of IS NULL "
+                "AND EXISTS (SELECT 1 FROM json_each(version_tags) jt WHERE jt.value = ?)",
+                (parent_source, derived_version),
+            ).fetchone()[0]
+
+        pages = own_pages + shared_pages
         total_pages += pages
 
-        src_cfg = SOURCES_BY_ID.get(source_id)
         manifest_sources.append(
             {
                 "source_id": source_id,
                 "display_name": src_cfg.display_name if src_cfg else source_id,
-                "version": src_cfg.version if src_cfg else "unknown",
+                "version": derived_version or "unknown",
                 "pages": pages,
-                "chunks": chunks,
+                "chunks": own_chunks,
                 "file_name": out_path.name,
                 "size_bytes": size,
             }
         )
         print(
-            f"  {source_id}: {pages} pages, {chunks} chunks, "
-            f"{size:,} bytes → {out_path.name}"
+            f"  {source_id}: {pages} pages ({own_pages} unique + {shared_pages} shared), "
+            f"{own_chunks} chunks, {size:,} bytes → {out_path.name}"
         )
 
     manifest = {
@@ -113,38 +143,98 @@ def export_sources(merged_db_path: Path, export_dir: Path) -> None:
     print(f"manifest.json written ({len(manifest_sources)} sources, {total_pages} pages)")
 
 
-def _export_source_db(conn, source_id: str, output_path: Path) -> None:
-    """Write a fresh DB containing only documents belonging to source_id."""
+def _export_source_db(
+    conn,
+    source_id: str,
+    output_path: Path,
+    *,
+    parent_source: str | None = None,
+    derived_version: str | None = None,
+) -> None:
+    """Write a fresh DB containing documents belonging to source_id.
+
+    If parent_source and derived_version are given, also includes rows from
+    the parent source whose version_tags contains derived_version (shared pages
+    that were collapsed into the parent during the version merge pass).  Those
+    shared rows are written with source=source_id and version=derived_version
+    so the exported DB is self-consistent.
+    """
+    import json as _json  # noqa: PLC0415
+
     out = db_module.get_connection(output_path)
     db_module.init_db(out)
 
-    rows = conn.execute(
-        """
-        SELECT url, title, source, version, section, subsection, slug,
-               file_path, content_md, content_hash, crawled_at,
-               embedding, has_chunks, chunk_of, chunk_index
-        FROM documents WHERE source = ?
-        """,
-        (source_id,),
-    ).fetchall()
+    _COL_SELECT = (
+        "url, title, source, version, section, subsection, slug, "
+        "file_path, content_md, content_hash, content_md_hash, version_tags, "
+        "crawled_at, embedding, has_chunks, chunk_of, chunk_index"
+    )
+    _COL_INSERT = (
+        "url, title, source, version, section, subsection, slug, "
+        "file_path, content_md, content_hash, content_md_hash, version_tags, "
+        "crawled_at, embedding, has_chunks, chunk_of, chunk_index"
+    )
+    _INSERT_SQL = f"""
+        INSERT OR IGNORE INTO documents ({_COL_INSERT})
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """
 
-    for row in rows:
+    def _write_row(row, override_source: str | None = None, override_version: str | None = None) -> None:
         out.execute(
-            """
-            INSERT OR IGNORE INTO documents
-                (url, title, source, version, section, subsection, slug,
-                 file_path, content_md, content_hash, crawled_at,
-                 embedding, has_chunks, chunk_of, chunk_index)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+            _INSERT_SQL,
             (
-                row["url"], row["title"], row["source"], row["version"],
-                row["section"], row["subsection"], row["slug"],
-                row["file_path"], row["content_md"], row["content_hash"],
-                row["crawled_at"], row["embedding"], row["has_chunks"],
-                row["chunk_of"], row["chunk_index"],
+                row["url"],
+                row["title"],
+                override_source or row["source"],
+                override_version or row["version"],
+                row["section"],
+                row["subsection"],
+                row["slug"],
+                row["file_path"],
+                row["content_md"],
+                row["content_hash"],
+                row["content_md_hash"],
+                row["version_tags"],
+                row["crawled_at"],
+                row["embedding"],
+                row["has_chunks"],
+                row["chunk_of"],
+                row["chunk_index"],
             ),
         )
+
+    # Own rows (unique to this source)
+    own_rows = conn.execute(
+        f"SELECT {_COL_SELECT} FROM documents WHERE source = ?",
+        (source_id,),
+    ).fetchall()
+    for row in own_rows:
+        _write_row(row)
+
+    # Shared rows from parent (version-merged pages tagged with derived_version)
+    if parent_source and derived_version:
+        shared_rows = conn.execute(
+            f"""
+            SELECT {_COL_SELECT} FROM documents
+            WHERE source = ?
+              AND EXISTS (
+                  SELECT 1 FROM json_each(version_tags) jt WHERE jt.value = ?
+              )
+            """,
+            (parent_source, derived_version),
+        ).fetchall()
+        for row in shared_rows:
+            # Remap source/version so the exported DB looks like a pure derived-version DB
+            _write_row(row, override_source=source_id, override_version=derived_version)
+        # Also export chunk rows for shared parent rows
+        for row in shared_rows:
+            if row["has_chunks"]:
+                chunk_rows = conn.execute(
+                    f"SELECT {_COL_SELECT} FROM documents WHERE chunk_of = ?",
+                    (row["url"],),
+                ).fetchall()
+                for cr in chunk_rows:
+                    _write_row(cr, override_source=source_id, override_version=derived_version)
 
     cs_rows = conn.execute(
         "SELECT url, source, status, error, attempted_at FROM crawl_state WHERE source = ?",
