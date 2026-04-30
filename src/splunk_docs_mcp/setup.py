@@ -126,10 +126,12 @@ def _select_sources(sources: list[dict]) -> list[dict]:
             shared = child.get("shared_pages", 0)
             unique = child["pages"]
             c_idx = len(numbered) + 1
-            shared_note = f" + {shared} shared with above" if shared else ""
+            # Total download = unique DB + parent DB (auto-added)
+            total_mb = child_size_mb + root["size_bytes"] / 1_048_576
             print(
                 f"       [{c_idx}] {child['display_name']}"
-                f"  ({unique} unique pages{shared_note}, {child_size_mb:.1f} MB)"
+                f"  ({unique} unique + {shared} shared pages,"
+                f" {total_mb:.1f} MB total — [{len(numbered)}] auto-included)"
             )
             numbered.append(child)
 
