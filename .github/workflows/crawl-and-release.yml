@@ -31,16 +31,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v8
 
       - name: Install dependencies
         run: uv sync
 
       - name: Restore per-source DB cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: data/${{ matrix.source }}.db
           key: splunk-db-${{ matrix.source }}-${{ github.run_id }}
@@ -52,14 +52,14 @@ jobs:
 
       - name: Save per-source DB cache
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: data/${{ matrix.source }}.db
           key: splunk-db-${{ matrix.source }}-${{ github.run_id }}
 
       - name: Upload per-source DB artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: db-${{ matrix.source }}
           path: data/${{ matrix.source }}.db
@@ -84,16 +84,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v8
 
       - name: Install dependencies
         run: uv sync
 
       - name: Restore per-source DB cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: data/${{ matrix.source }}.db
           key: splunk-db-${{ matrix.source }}-${{ github.run_id }}
@@ -104,7 +104,7 @@ jobs:
         # continue-on-error so the crawl still runs (with BFS seeds only) if
         # the 8.5 job failed and didn't upload an artifact.
         continue-on-error: true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: db-enterprise-security
           path: data/
@@ -119,14 +119,14 @@ jobs:
 
       - name: Save per-source DB cache
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: data/${{ matrix.source }}.db
           key: splunk-db-${{ matrix.source }}-${{ github.run_id }}
 
       - name: Upload per-source DB artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: db-${{ matrix.source }}
           path: data/${{ matrix.source }}.db
@@ -142,16 +142,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v8
 
       - name: Install dependencies
         run: uv sync
 
       - name: Download all per-source DB artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: db-*
           merge-multiple: true
@@ -182,7 +182,7 @@ jobs:
         run: echo "tag=data-$(date -u +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
 
       - name: Publish release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: "Splunk docs index — ${{ steps.tag.outputs.tag }}"
