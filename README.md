@@ -53,7 +53,7 @@ You can also target specific products or versions in your question — Claude wi
 ## Limitations
 
 - **Not affiliated with or endorsed by Splunk or Cisco.**
-- **Products not yet covered:** ITSI, Observability Cloud, SOAR, and Mission Control are not indexed yet — these are planned additions.
+- **Products not yet covered:** ITSI, Observability Cloud, and Mission Control are not indexed yet — these are planned additions.
 - **Data freshness:** rebuilt weekly. Answers reflect docs as of the last crawl shown in the release tag (`data-YYYY-MM-DD`).
 
 ---
@@ -132,6 +132,8 @@ The goal is to keep the **current released version plus the previous version (n�
 | `splunk-enterprise` | Splunk Enterprise | 10.2 (current) |
 | `splunk-cloud` | Splunk Cloud Platform | 10.3.2512 (current) |
 | `admin-manual` | Splunk Configuration File Reference | 10.2 |
+| `soar-on-premises` | Splunk SOAR On-Premises | 8.5.0 (current) |
+| `soar-cloud` | Splunk SOAR Cloud | current |
 | `lantern` | Splunk Lantern | current |
 
 ---
