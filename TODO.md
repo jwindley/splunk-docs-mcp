@@ -13,6 +13,13 @@ _Last updated: 2026-04-26_
 
 ## ✅ Done (2026-04-30)
 
+### Setup menu redesign
+- Grouped hierarchical display: current version first, n-1 versions indented beneath
+- n-1 per-source exports contain only unique pages (shared pages live in parent DB via version_tags)
+- Selecting an n-1 version auto-adds the parent so shared pages are available
+- Total download size shown per entry (unique DB + parent DB)
+- Export order follows PHASE1_SOURCES order (logical grouping, not alphabetical)
+
 ### Option B: cross-version content deduplication (version_tags)
 - `content_md_hash` column added (SHA-256 of extracted Markdown) — fixes Enterprise/Cloud overlap (~2,006 pages)
 - `version_tags` JSON column added — canonical rows tagged with all versions they cover

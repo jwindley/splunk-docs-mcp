@@ -25,7 +25,7 @@ _Last updated: 2026-04-30 (Option B: version_tags + content_md_hash; SOAR indexi
 | `src/splunk_docs_mcp/cli.py` | ✅ Done | `--delay-jitter`; `_dedup_pass()`; exit 1 only if failure rate >5% |
 | `src/splunk_docs_mcp/crawler.py` | ✅ Done | Retry pass after BFS; failed URLs excluded from visited set; auth-redirect detection (4xx after off-domain redirect → skipped, not failed) |
 | `src/splunk_docs_mcp/merge.py` | ✅ Done | `merge_dbs()`, `export_sources()`, `splunk-merge` CLI |
-| `src/splunk_docs_mcp/setup.py` | ✅ Done | Interactive menu; per-source selection; WAL cleanup after merge |
+| `src/splunk_docs_mcp/setup.py` | ✅ Done | Grouped hierarchical menu (product → versions); n-1 auto-adds parent; total MB shown per entry; WAL cleanup after merge |
 | `tests/test_extractor.py` | ✅ Done | 18 tests for `parse_url_metadata()` |
 | `tests/test_crawler.py` | ✅ Done | 18 tests for `_normalise_url`, `_is_target_url`, `_section_from_url` |
 | `.github/workflows/crawl-and-release.yml` | ✅ Done | 10-source matrix (crawl + crawl-derived + merge-and-release); resilient merge (skips missing DBs) |
