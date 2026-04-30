@@ -16,29 +16,28 @@ The primary use case is giving Claude (via MCP) accurate, version-specific Splun
 
 ## Active Crawl Sources
 
-Goal: **current released version + n−1** for each product. ITSI, SOAR, Observability are planned additions.
+Goal: **current released version + n−1** for each product. ITSI and Observability are planned additions.
 
 | Source ID | Display Name | Version | Base URL | Pages (actual) | Status |
 |-----------|-------------|---------|----------|----------------|--------|
-| `enterprise-security` | Splunk Enterprise Security 8.5 | 8.5 | `help.splunk.com/en/splunk-enterprise-security-8/` | 738 | ⚠️ Low (expected ~1,275) |
-| `enterprise-security-8-4` | Splunk Enterprise Security 8.4 | 8.4 | `help.splunk.com/en/splunk-enterprise-security-8/` | 431 | ✅ OK — sitemap shows 308; we exceed that. 8.4 has fewer pages than 8.5 because pci-compliance and CIM are 8.5-only sections |
+| `enterprise-security` | Splunk Enterprise Security 8.5 | 8.5 | `help.splunk.com/en/splunk-enterprise-security-8/` | 738 | ✅ OK |
+| `enterprise-security-8-4` | Splunk Enterprise Security 8.4 | 8.4 | `help.splunk.com/en/splunk-enterprise-security-8/` | 431 | ✅ OK — 8.4 has fewer pages; pci-compliance and CIM are 8.5-only sections |
 | `enterprise-security-8-3` | Splunk Enterprise Security 8.3 | 8.3 | `help.splunk.com/en/splunk-enterprise-security-8/` | 351 | ✅ OK |
 | `admin-manual` | Splunk Configuration File Reference 10.2 | 10.2 | `help.splunk.com/en/data-management/splunk-enterprise-admin-manual/10.2/configuration-file-reference/` | 216 | ✅ OK |
 | `splunk-enterprise` | Splunk Enterprise 10.2 | 10.2 | `help.splunk.com/en/splunk-enterprise/` | 3,549 | ✅ OK |
 | `splunk-cloud` | Splunk Cloud Platform 10.3.2512 | 10.3.2512 | `help.splunk.com/en/splunk-cloud-platform/` | 2,658 | ✅ OK |
-| `lantern` | Splunk Lantern | current | `lantern.splunk.com/` | 1,240 | ✅ OK (was failing due to auth-gated pages; fixed) |
+| `soar-on-premises` | Splunk SOAR On-Premises 8.5.0 | 8.5.0 | `help.splunk.com/en/splunk-soar/soar-on-premises/` | TBD | ✅ Added |
+| `soar-on-premises-8-4-0` | Splunk SOAR On-Premises 8.4.0 | 8.4.0 | `help.splunk.com/en/splunk-soar/soar-on-premises/` | TBD | ✅ Added (derives from soar-on-premises) |
+| `soar-cloud` | Splunk SOAR Cloud | current | `help.splunk.com/en/splunk-soar/soar-cloud/` | TBD | ✅ Added |
+| `lantern` | Splunk Lantern | current | `lantern.splunk.com/` | 1,240 | ✅ OK |
 
-**Known issue — older version seeding (affects Enterprise 10.1 and Cloud 10.2; ES 8.3 now works):**
-Section-level seed URLs for older versions redirect to the current version's section page. All links on the redirect destination are for the current version and get rejected by the version filter. ES 8.3 was fixed by direct page-URL seeds. Fix needed for Enterprise 10.1 and Cloud 10.2: a better seeding strategy that can discover older-version page URLs directly (see TODO.md).
-
-**Known issue — Enterprise vs Cloud dedup gap:**
-The current dedup uses raw HTML hash (`content_hash`). Enterprise and Cloud pages have different HTML (different URLs = different HTML structure), so their hashes differ even when extracted Markdown is identical. ~2,006 Enterprise pages (56%) share content with Cloud: `search` (673), `alert-and-respond` (272), `spl-search-reference` (203), `create-dashboards-and-reports` (176). Fix: add `content_md_hash` column and include in `run_dedup_pass()`.
+No blocking known issues.
 
 ---
 
 ## Distribution Model (Phase 2 — complete)
 
-- **GitHub Actions** crawls weekly (Sunday 02:00 UTC) + `workflow_dispatch`; 9-job matrix (one per source); aggregation job merges (skipping missing DBs) + exports + publishes release
+- **GitHub Actions** crawls weekly (Sunday 02:00 UTC) + `workflow_dispatch`; 10-source matrix (`crawl` + `crawl-derived` jobs); aggregation job merges (skipping missing DBs) + exports + publishes release
 - **Release assets:** `splunk_docs.db` (full merged), `splunk_docs_<source>.db` (per-source), `manifest.json`
 - **`splunk-setup`** interactive menu — select sources or `all`; downloads per-source DBs, merges, cleans up WAL temp files
 - **`splunk-merge`** combines per-source DBs; `--export-sources` generates per-source files + `manifest.json`
@@ -47,7 +46,7 @@ The current dedup uses raw HTML hash (`content_hash`). Enterprise and Cloud page
 ## Future Scope (do NOT build yet)
 
 - **SPL examples library** — curated JSON → separate `spl_examples` DB table + `search_spl` MCP tool (schema stub already in `db.py`)
-- **Add ITSI, SOAR, Observability** — most-requested missing products
+- **Add ITSI, Observability** — most-requested missing products (SOAR is now indexed)
 
 ---
 
@@ -136,7 +135,10 @@ Everything downstream of `config.py` is source-agnostic. Adding a new crawl sour
 Every document row in the DB stores its source ID and product version. Search results always include this metadata so it is always clear which version of which product a result is from.
 
 ### Version filter on search tools
-`search_docs()` and `search_docs_semantic_from_matrix()` accept `version: str | None`. When set, it adds `AND d.version = ?` to the query. **Critically, the `is_duplicate = 0` dedup filter is bypassed when `version` is specified** — version-targeted queries must see all docs for that version regardless of whether identical content exists in a higher-priority source.
+`search_docs()` and `search_docs_semantic_from_matrix()` accept `version: str | None`. When set, it matches rows where **either** `d.version = ?` OR the `version_tags` JSON array contains the requested version (via `json_each`). This is how shared rows (collapsed by `run_version_merge_pass`) are found when querying for an older version. **Critically, the `is_duplicate = 0` dedup filter is bypassed when `version` is specified** — version-targeted queries must see all docs for that version regardless of whether identical content exists in a higher-priority source.
+
+### Option B — cross-version content deduplication
+`run_version_merge_pass(conn, source_pairs)` runs at `merge_dbs` time. For each (derived_source, parent_source) pair from `get_source_version_pairs()`, it finds derived rows whose `content_md_hash` matches a parent row. Those derived rows are deleted; the parent row's `version_tags` is updated to include the derived version (e.g. `["8.5","8.4"]`). Result: DB size stays bounded when n-1 sources are added; shared pages are found by both version queries.
 
 ### Module-level DB singleton in `server.py`
 DB connection opened once on first use, reused across all tool calls. Simpler and more reliable than MCP framework lifespan API for this use case.
@@ -158,15 +160,19 @@ Short documents (≤ 8,000 chars) are embedded whole; long documents are embedde
 
 ```sql
 documents          -- one row per page or chunk; url UNIQUE
-                   --   has_chunks    INTEGER DEFAULT 0  (1 = split into chunks; exclude from search)
-                   --   chunk_of      TEXT               (NULL = not a chunk; parent URL for chunks)
-                   --   chunk_index   INTEGER            (0-based position within parent)
-                   --   embedding     BLOB               (384-dim float32; NULL for has_chunks=1 parents)
-                   --   is_duplicate  INTEGER DEFAULT 0  (1 = same content_hash exists in higher-priority source)
+                   --   has_chunks      INTEGER DEFAULT 0  (1 = split into chunks; exclude from search)
+                   --   chunk_of        TEXT               (NULL = not a chunk; parent URL for chunks)
+                   --   chunk_index     INTEGER            (0-based position within parent)
+                   --   embedding       BLOB               (384-dim float32; NULL for has_chunks=1 parents)
+                   --   content_hash    TEXT               SHA-256 of raw HTML (incremental re-crawl skip)
+                   --   content_md_hash TEXT               SHA-256 of extracted Markdown (Option B dedup)
+                   --   version_tags    TEXT               JSON array of versions, e.g. '["8.5","8.4"]'
+                   --   is_duplicate    INTEGER DEFAULT 0  (1 = same content_md_hash in higher-priority source)
 documents_fts      -- FTS5 virtual table (content=documents); auto-synced via triggers
 crawl_state        -- per-URL crawl status; used by crawler only, not MCP server
-                   --   status: 'fetched' | 'skipped' | 'failed'
-                   --   failed URLs excluded from get_visited_urls() so they retry on next incremental crawl
+                   --   status: 'fetched' | 'skipped' | 'failed' | 'dead'
+                   --   'dead' = HTTP 404; excluded from retries permanently
+                   --   'failed' URLs retried on next incremental crawl
 ```
 
 DB file: `data/splunk_docs.db` (gitignored — regenerated by crawl)

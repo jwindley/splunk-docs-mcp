@@ -1,12 +1,12 @@
 # Build Plan — splunk-docs-mcp
 
-_Last updated: 2026-04-25 (Lantern fix, ES page count investigation, stale items cleared)_
+_Last updated: 2026-04-30 (Option B: version_tags + content_md_hash; SOAR indexing; dead-URL status)_
 
 ---
 
 ## Current Status
 
-**Phase 1, 2, and Phase 3 are complete.** GHA workflow is running cleanly for all active sources. One known coverage gap remains: ES 8.4 is missing ~370 pages from sections only linked by the current (8.5) site navigation.
+**Phase 1, 2, Phase 3, and Option B are complete.** GHA workflow runs all 10 sources (ES 8.3/8.4/8.5, Enterprise 10.2, Cloud 10.3.2512, admin-manual, SOAR on-prem 8.4/8.5, SOAR Cloud, Lantern). Cross-version content deduplication via `version_tags` is live.
 
 ---
 
@@ -18,8 +18,8 @@ _Last updated: 2026-04-25 (Lantern fix, ES page count investigation, stale items
 | `.gitignore` | ✅ Done | Includes merge temp patterns (*.tmp, *.tmp-wal, *.tmp-shm) |
 | `.python-version` | ✅ Done | `3.12` |
 | `src/splunk_docs_mcp/__init__.py` | ✅ Done | |
-| `src/splunk_docs_mcp/config.py` | ✅ Done | 7 active sources (ES 8.3/8.4/8.5, admin-manual 10.2, Enterprise 10.2, Cloud 10.3.2512, Lantern) |
-| `src/splunk_docs_mcp/db.py` | ✅ Done | Schema + all helpers; `is_duplicate` column; `run_dedup_pass()`; `merge_source_db()`; `get_failed_urls()`; version filter on search functions |
+| `src/splunk_docs_mcp/config.py` | ✅ Done | 10 active sources; `get_source_version_pairs()` for version merge |
+| `src/splunk_docs_mcp/db.py` | ✅ Done | Schema + all helpers; `content_md_hash`; `version_tags`; `run_version_merge_pass()`; `run_dedup_pass()` uses `content_md_hash`; version filter matches `json_each(version_tags)` |
 | `src/splunk_docs_mcp/extractor.py` | ✅ Done | |
 | `src/splunk_docs_mcp/server.py` | ✅ Done | 6 tools; `version=` filter on `search_docs` + `search_docs_semantic`; source instructions |
 | `src/splunk_docs_mcp/cli.py` | ✅ Done | `--delay-jitter`; `_dedup_pass()`; exit 1 only if failure rate >5% |
@@ -28,7 +28,7 @@ _Last updated: 2026-04-25 (Lantern fix, ES page count investigation, stale items
 | `src/splunk_docs_mcp/setup.py` | ✅ Done | Interactive menu; per-source selection; WAL cleanup after merge |
 | `tests/test_extractor.py` | ✅ Done | 18 tests for `parse_url_metadata()` |
 | `tests/test_crawler.py` | ✅ Done | 18 tests for `_normalise_url`, `_is_target_url`, `_section_from_url` |
-| `.github/workflows/crawl-and-release.yml` | ✅ Done | 7-job matrix; resilient merge (skips missing DBs) |
+| `.github/workflows/crawl-and-release.yml` | ✅ Done | 10-source matrix (crawl + crawl-derived + merge-and-release); resilient merge (skips missing DBs) |
 | `README.md` | ✅ Done | Hallucination motivation at top; uv install instructions; simplified sources table; n−1 coverage model |
 
 ---
@@ -36,8 +36,9 @@ _Last updated: 2026-04-25 (Lantern fix, ES page count investigation, stale items
 ## What Works
 
 - **MCP server:** all 6 tools; `version=` filter on both search tools
-- **Multi-version search:** `search_docs(query, version="8.4")` filters correctly across sources
-- **Cross-source dedup:** `is_duplicate=1` suppresses duplicate content in general searches; bypassed when `version=` is set
+- **Multi-version search:** `search_docs(query, version="8.4")` matches rows by `version` column AND `version_tags` JSON array
+- **Cross-version dedup (Option B):** `run_version_merge_pass` collapses same-content n-1 rows into parent rows tagged with both versions; DB size stays bounded as more n-1 sources are added
+- **Cross-source dedup:** `is_duplicate=1` suppresses duplicate content (now using `content_md_hash` — fixes Enterprise/Cloud Markdown-identical pages); bypassed when `version=` is set
 - **BM25 keyword search:** FTS5, BM25 ranked, title weighted 10×, snippets
 - **Semantic search:** all-MiniLM-L6-v2 embeddings, matrix cached at startup
 - **Crawler retry pass:** after main BFS, failed URLs are re-attempted once
@@ -52,21 +53,7 @@ _Last updated: 2026-04-25 (Lantern fix, ES page count investigation, stale items
 
 ## Known Issues
 
-### 1. Enterprise vs Cloud dedup gap
-
-**Symptom:** The current dedup (`run_dedup_pass`) is based on raw HTML hash (`content_hash`). Enterprise and Cloud pages are served from different URLs so their HTML hashes differ even when extracted Markdown is identical.
-
-**Impact:** ~2,006 Enterprise pages (56%) share content with Cloud. Sections most affected: `search` (673), `alert-and-respond` (272), `spl-search-reference` (203), `create-dashboards-and-reports` (176). General searches return both versions of identical articles.
-
-**Fix needed:** Add a `content_md_hash` column; use it in `run_dedup_pass()` alongside `content_hash`.
-
----
-
-## What Is Incomplete
-
-| Item | Status |
-|------|--------|
-| Enterprise vs Cloud dedup via `content_md_hash` | ❌ Not started |
+No blocking issues. The previously noted Enterprise/Cloud dedup gap is resolved by `content_md_hash` in `run_dedup_pass`.
 
 ---
 
@@ -88,5 +75,5 @@ _Last updated: 2026-04-25 (Lantern fix, ES page count investigation, stale items
 
 ### Tier 4 — Polish (partial)
 - **Item 5** ✅ — Cross-source deduplication (`is_duplicate` column; version-bypass logic)
-- **Item 5b** ❌ — Extend dedup to use `content_md_hash` for Enterprise/Cloud overlap
+- **Item 5b** ✅ — Extend dedup to use `content_md_hash` for Enterprise/Cloud overlap (done in Option B)
 - **Item 9** ✅ — `splunk-setup` version selection UI

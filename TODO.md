@@ -4,24 +4,32 @@ _Last updated: 2026-04-26_
 
 ---
 
-## 🟡 Priority 1 — Nice to have
+## ⚫ Priority — Future / optional
 
-## 🟡 Priority 2 — Nice to have
-
-### Extend dedup to catch Enterprise vs Cloud overlap
-- [ ] Add `content_md_hash TEXT` column to `documents` (hash of extracted Markdown, not raw HTML)
-- [ ] Compute `content_md_hash` at crawl time (in `upsert_document`) or in a backfill pass
-- [ ] Update `run_dedup_pass()` to also group by `content_md_hash` in addition to `content_hash`
-- [ ] Re-run dedup after backfilling — ~2,006 Enterprise pages (~56%) have identical content to Cloud
-- [ ] Sections most affected: `search` (673), `alert-and-respond` (272), `spl-search-reference` (203)
+- [ ] **SPL examples library** — `spl_examples` table + `search_spl` MCP tool (schema stub already in `db.py`)
+- [ ] **Add ITSI, Observability** — most-requested missing products
 
 ---
 
-## ⚫ Priority 3 — Future / optional
+## ✅ Done (2026-04-30)
 
-- [ ] **'Dead' URL status for permanent 404s** — currently URLs that 404 are stored as `status='failed'` and retried on every run. Adding a `'dead'` status (set when HTTP 404 is received) would exclude those URLs from `get_failed_urls()` and `get_visited_urls()`, stopping them being retried forever.
-- [ ] **SPL examples library** — `spl_examples` table + `search_spl` MCP tool (schema stub already in `db.py`)
-- [ ] **Add ITSI, SOAR, Observability** — most-requested missing products
+### Option B: cross-version content deduplication (version_tags)
+- `content_md_hash` column added (SHA-256 of extracted Markdown) — fixes Enterprise/Cloud overlap (~2,006 pages)
+- `version_tags` JSON column added — canonical rows tagged with all versions they cover
+- `run_version_merge_pass()` collapses same-content derived rows into parent rows
+- `run_dedup_pass()` updated to use `COALESCE(content_md_hash, content_hash)`
+- `search_docs` and semantic search version filter now matches via `json_each(version_tags)`
+- `merge_dbs()` calls version merge pass before FTS5 rebuild
+- `export_sources()` includes shared rows in n-1 per-source exports
+
+### SOAR indexing
+- `soar-on-premises` 8.5.0 (current) and `soar-on-premises-8-4-0` 8.4.0 (n-1) added
+- `soar-cloud` (current) added
+- URL derivation for SOAR 8.4.0 via `derive_from="soar-on-premises"`
+
+### 'Dead' URL status for permanent 404s
+- `crawler.py`: HTTP 404 responses now stored as `status='dead'` not `status='failed'`
+- Dead URLs are not retried on subsequent crawls (excluded from `get_failed_urls`)
 
 ---
 
