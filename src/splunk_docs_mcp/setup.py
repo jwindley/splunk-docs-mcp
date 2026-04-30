@@ -93,17 +93,50 @@ def _download_file(url: str, dest: Path, label: str, total_bytes: int) -> None:
 
 
 def _select_sources(sources: list[dict]) -> list[dict]:
-    """Display numbered menu and return user-selected sources."""
+    """Display a grouped, numbered menu and return the user-selected sources.
+
+    Sources are grouped by product family: current-version entries are shown
+    first, with n-1 entries indented beneath them.  Selecting a n-1 version
+    automatically adds the parent (current) version so shared pages are included.
+    """
+    by_id = {s["source_id"]: s for s in sources}
+
+    # Build parent → [children] map using parent_source_id from the manifest.
+    # Fall back to a flat list for manifests that pre-date Option B.
+    children_of: dict[str, list[dict]] = {}
+    roots: list[dict] = []
+    for src in sources:
+        parent_id = src.get("parent_source_id")
+        if parent_id and parent_id in by_id:
+            children_of.setdefault(parent_id, []).append(src)
+        else:
+            roots.append(src)
+
+    numbered: list[dict] = []  # ordered list matching menu numbers
+
     print("\nAvailable sources:\n")
-    for i, src in enumerate(sources, 1):
-        size_mb = src["size_bytes"] / 1_048_576
-        print(
-            f"  [{i}] {src['display_name']}"
-            f"  ({src['pages']} pages, {size_mb:.1f} MB)"
-        )
+    for root in roots:
+        size_mb = root["size_bytes"] / 1_048_576
+        idx = len(numbered) + 1
+        print(f"  [{idx}] {root['display_name']}  ({root['pages']} pages, {size_mb:.1f} MB)")
+        numbered.append(root)
+
+        for child in children_of.get(root["source_id"], []):
+            child_size_mb = child["size_bytes"] / 1_048_576
+            shared = child.get("shared_pages", 0)
+            unique = child["pages"]
+            c_idx = len(numbered) + 1
+            shared_note = f" + {shared} shared with above" if shared else ""
+            print(
+                f"       [{c_idx}] {child['display_name']}"
+                f"  ({unique} unique pages{shared_note}, {child_size_mb:.1f} MB)"
+            )
+            numbered.append(child)
 
     total_mb = sum(s["size_bytes"] for s in sources) / 1_048_576
     print(f"\n  [all] Download all sources  ({total_mb:.1f} MB total)\n")
+    print("  Note: selecting an n-1 version automatically includes the current version\n"
+          "        so shared pages are available for version-filtered searches.\n")
 
     while True:
         raw = input("Select sources (e.g. 1,3,5  or  all): ").strip().lower()
@@ -116,12 +149,23 @@ def _select_sources(sources: list[dict]) -> list[dict]:
         except ValueError:
             print("  Enter numbers separated by commas, or 'all'.")
             continue
-        invalid = [i for i in indices if i < 1 or i > len(sources)]
+        invalid = [i for i in indices if i < 1 or i > len(numbered)]
         if invalid:
-            print(f"  Invalid number(s): {invalid}. Choose between 1 and {len(sources)}.")
+            print(f"  Invalid number(s): {invalid}. Choose between 1 and {len(numbered)}.")
             continue
-        selected = [sources[i - 1] for i in indices]
-        return selected
+
+        chosen: dict[str, dict] = {}
+        for i in indices:
+            src = numbered[i - 1]
+            chosen[src["source_id"]] = src
+            # Auto-add the parent so shared pages (accessed via version_tags) are present
+            parent_id = src.get("parent_source_id")
+            if parent_id and parent_id in by_id and parent_id not in chosen:
+                parent = by_id[parent_id]
+                chosen[parent_id] = parent
+                print(f"  Auto-adding {parent['display_name']} (required for shared pages with {src['display_name']})")
+
+        return list(chosen.values())
 
 
 def _confirm_all(sources: list[dict]) -> None:
