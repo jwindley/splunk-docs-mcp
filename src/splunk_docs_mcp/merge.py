@@ -73,12 +73,18 @@ def export_sources(merged_db_path: Path, export_dir: Path) -> None:
     from .config import get_source_version_pairs  # noqa: PLC0415
     derived_to_parent: dict[str, str] = dict(get_source_version_pairs())
 
-    source_ids = [
+    # Use PHASE1_SOURCES order so the manifest (and setup menu) groups products
+    # logically with versions in descending order, rather than alphabetically.
+    from .config import PHASE1_SOURCES  # noqa: PLC0415
+    all_db_sources = {
         r[0]
         for r in conn.execute(
-            "SELECT DISTINCT source FROM documents WHERE chunk_of IS NULL ORDER BY source"
+            "SELECT DISTINCT source FROM documents WHERE chunk_of IS NULL"
         ).fetchall()
-    ]
+    }
+    # Preserve PHASE1_SOURCES order; append any unknown source_ids at the end
+    source_ids = [s.source_id for s in PHASE1_SOURCES if s.source_id in all_db_sources]
+    source_ids += sorted(all_db_sources - set(source_ids))
 
     manifest_sources = []
     total_pages = 0
