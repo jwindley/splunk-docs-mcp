@@ -121,11 +121,13 @@ mcp = FastMCP(
         "  soar-on-premises         — Splunk SOAR On-Premises 8.5.0\n"
         "  soar-cloud               — Splunk SOAR Cloud (current)\n"
         "  lantern                  — Splunk Lantern (use-case guidance, best practices)\n\n"
-        "Version filter (version= on search_docs / search_docs_semantic):\n"
-        "  Use version= to filter across sources by product version when the user asks\n"
-        "  about a specific release. Example: version='8.4' returns ES 8.4 docs only.\n"
+        "Version filter — REQUIRED when the user names a specific version:\n"
+        "  If the user mentions '8.4', '8.3', or any specific release, you MUST include\n"
+        "  version= in every search call. Without it, searches return mostly current-version\n"
+        "  results and you will incorrectly report that older versions are not indexed.\n"
         "  Valid values: '8.3', '8.4', '8.5', '8.5.0', '10.2', '10.3.2512', 'current'.\n"
-        "  Combine source= and version= for precise targeting (e.g. ES 8.4 only).\n\n"
+        "  Example: search_docs('correlation search', source='enterprise-security', version='8.4')\n"
+        "  Never tell the user a version is unavailable without first searching with version= set.\n\n"
 
         "DECISION TREE — apply before every question:\n\n"
 
