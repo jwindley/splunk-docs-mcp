@@ -133,6 +133,7 @@ The goal is to keep the **current released version plus the previous version (nâ
 | `splunk-cloud` | Splunk Cloud Platform | 10.3.2512 (current) |
 | `admin-manual` | Splunk Configuration File Reference | 10.2 |
 | `soar-on-premises` | Splunk SOAR On-Premises | 8.5.0 (current) |
+| `soar-on-premises-8-4-0` | Splunk SOAR On-Premises | 8.4.0 (nâˆ’1) |
 | `soar-cloud` | Splunk SOAR Cloud | current |
 | `lantern` | Splunk Lantern | current |
 

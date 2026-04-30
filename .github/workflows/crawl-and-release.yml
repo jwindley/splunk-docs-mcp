@@ -66,8 +66,9 @@ jobs:
           retention-days: 1
 
   # ---------------------------------------------------------------------------
-  # Derived crawl — ES 8.4 and 8.3, seeded from the 8.5 DB via URL substitution.
-  # Runs after the main crawl so the enterprise-security (8.5) artifact is available.
+  # Derived crawl — older versions seeded from current-version DB via URL substitution.
+  # Runs after the main crawl so parent source artifacts are available.
+  # derive_db: source_id of the parent source whose DB to use for URL derivation.
   # ---------------------------------------------------------------------------
   crawl-derived:
     needs: [crawl]
@@ -75,9 +76,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        source:
-          - enterprise-security-8-4
-          - enterprise-security-8-3
+        include:
+          - source: enterprise-security-8-4
+            derive_db: enterprise-security
+          - source: enterprise-security-8-3
+            derive_db: enterprise-security
+          - source: soar-on-premises-8-4-0
+            derive_db: soar-on-premises
 
     runs-on: ubuntu-latest
     timeout-minutes: 240
@@ -100,13 +105,13 @@ jobs:
           restore-keys: |
             splunk-db-${{ matrix.source }}-
 
-      - name: Download enterprise-security (8.5) DB for URL derivation
+      - name: Download parent source DB for URL derivation
         # continue-on-error so the crawl still runs (with BFS seeds only) if
-        # the 8.5 job failed and didn't upload an artifact.
+        # the parent job failed and didn't upload an artifact.
         continue-on-error: true
         uses: actions/download-artifact@v8
         with:
-          name: db-enterprise-security
+          name: db-${{ matrix.derive_db }}
           path: data/
 
       - name: Crawl ${{ matrix.source }}
@@ -115,7 +120,7 @@ jobs:
             --sources ${{ matrix.source }} \
             --db data/${{ matrix.source }}.db \
             --full \
-            --derive-db data/enterprise-security.db
+            --derive-db data/${{ matrix.derive_db }}.db
 
       - name: Save per-source DB cache
         if: always()
@@ -161,7 +166,8 @@ jobs:
         run: |
           DBS=""
           for src in enterprise-security enterprise-security-8-4 enterprise-security-8-3 \
-                     admin-manual splunk-enterprise splunk-cloud soar-on-premises soar-cloud lantern; do
+                     admin-manual splunk-enterprise splunk-cloud \
+                     soar-on-premises soar-on-premises-8-4-0 soar-cloud lantern; do
             if [ -f "data/${src}.db" ]; then
               DBS="$DBS data/${src}.db"
             else
@@ -194,7 +200,7 @@ jobs:
             - Splunk Enterprise 10.2
             - Splunk Cloud Platform 10.3.2512
             - Splunk Configuration File Reference 10.2
-            - Splunk SOAR On-Premises 8.5.0
+            - Splunk SOAR On-Premises 8.5.0, 8.4.0
             - Splunk SOAR Cloud (current)
             - Splunk Lantern (current)
 
