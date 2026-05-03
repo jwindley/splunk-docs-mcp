@@ -162,9 +162,10 @@ async def _run(args: argparse.Namespace) -> int:
                     )
                 else:
                     derive_conn = db_module.get_connection(derive_db_path)
-                    db_module.init_db(derive_conn)
-                    parent_urls = get_crawled_urls_for_source(derive_conn, source.derive_from)
-                    if args.derive_db:
+                    try:
+                        db_module.init_db(derive_conn)
+                        parent_urls = get_crawled_urls_for_source(derive_conn, source.derive_from)
+                    finally:
                         derive_conn.close()
                     # Assumes version appears as an isolated path segment (e.g. /8.5/ → /8.4/).
                     # _is_target_url() provides a second layer of defence by rejecting
@@ -248,34 +249,36 @@ def _chunk_pass(args: argparse.Namespace, sources: list[CrawlSource]) -> None:
 
     conn = db_module.get_connection(args.db)
     db_module.init_db(conn)
+    try:
+        if args.full or args.rechunk:
+            for source in sources:
+                conn.execute(
+                    "DELETE FROM documents WHERE chunk_of IN "
+                    "(SELECT url FROM documents WHERE source = ?)",
+                    (source.source_id,),
+                )
+                conn.execute(
+                    "UPDATE documents SET has_chunks = 0 WHERE source = ?",
+                    (source.source_id,),
+                )
+            conn.commit()
+            flag = "--full" if args.full else "--rechunk"
+            logger.info("Cleared existing chunks for re-chunking (%s).", flag)
 
-    if args.full or args.rechunk:
+        total = 0
         for source in sources:
-            conn.execute(
-                "DELETE FROM documents WHERE chunk_of IN "
-                "(SELECT url FROM documents WHERE source = ?)",
-                (source.source_id,),
-            )
-            conn.execute(
-                "UPDATE documents SET has_chunks = 0 WHERE source = ?",
-                (source.source_id,),
-            )
-        conn.commit()
-        flag = "--full" if args.full else "--rechunk"
-        logger.info("Cleared existing chunks for re-chunking (%s).", flag)
+            docs = db_module.get_documents_needing_chunking(conn, source_id=source.source_id)
+            for doc in docs:
+                n = db_module.chunk_document(conn, dict(doc))
+                total += 1
+                logger.debug("Chunked %s into %d parts.", doc["url"], n)
 
-    total = 0
-    for source in sources:
-        docs = db_module.get_documents_needing_chunking(conn, source_id=source.source_id)
-        for doc in docs:
-            n = db_module.chunk_document(conn, dict(doc))
-            total += 1
-            logger.debug("Chunked %s into %d parts.", doc["url"], n)
-
-    if total:
-        logger.info("Chunk pass complete — %d documents split into chunks.", total)
-    else:
-        logger.info("No documents needed chunking.")
+        if total:
+            logger.info("Chunk pass complete — %d documents split into chunks.", total)
+        else:
+            logger.info("No documents needed chunking.")
+    finally:
+        conn.close()
 
 
 def _embed_pass(args: argparse.Namespace, sources: list[CrawlSource]) -> None:
@@ -294,72 +297,70 @@ def _embed_pass(args: argparse.Namespace, sources: list[CrawlSource]) -> None:
 
     conn = db_module.get_connection(args.db)
     db_module.init_db(conn)
+    try:
+        # --full: clear embeddings for the crawled sources so all docs are re-embedded
+        if args.full:
+            for source in sources:
+                conn.execute(
+                    "UPDATE documents SET embedding = NULL WHERE source = ?",
+                    (source.source_id,),
+                )
+            conn.commit()
+            logger.info("Cleared existing embeddings for re-embedding (--full).")
 
-    # --full: clear embeddings for the crawled sources so all docs are re-embedded
-    if args.full:
+        # Collect docs that need embedding across all crawled sources
+        docs: list = []
         for source in sources:
-            conn.execute(
-                "UPDATE documents SET embedding = NULL WHERE source = ?",
-                (source.source_id,),
+            docs.extend(
+                db_module.get_documents_without_embeddings(conn, source.source_id)
             )
-        conn.commit()
-        logger.info("Cleared existing embeddings for re-embedding (--full).")
 
-    # Collect docs that need embedding across all crawled sources
-    docs: list = []
-    for source in sources:
-        docs.extend(
-            db_module.get_documents_without_embeddings(conn, source.source_id)
+        if not docs:
+            logger.info("All documents already have embeddings — skipping embed pass.")
+            return
+
+        # Reuse embeddings for documents whose content matches an already-encoded row.
+        to_encode: list = []
+        reused = 0
+        for doc in docs:
+            existing = db_module.get_embedding_by_hash(conn, doc["content_hash"])
+            if existing is not None:
+                db_module.update_embedding(conn, doc["id"], existing)
+                reused += 1
+            else:
+                to_encode.append(doc)
+        if reused:
+            conn.commit()
+            logger.info("Reused %d embedding(s) from matching content_hash.", reused)
+
+        if not to_encode:
+            logger.info("Embedding pass complete — all %d via hash reuse.", reused)
+            return
+
+        logger.info("Loading embedding model (all-MiniLM-L6-v2)…")
+        from sentence_transformers import SentenceTransformer  # noqa: PLC0415
+        model = SentenceTransformer("all-MiniLM-L6-v2")
+
+        logger.info("Generating embeddings for %d documents…", len(to_encode))
+        texts = [f"{doc['title']}\n\n{doc['content_md']}" for doc in to_encode]
+
+        embeddings = model.encode(
+            texts,
+            normalize_embeddings=True,
+            batch_size=32,
+            show_progress_bar=True,
         )
 
-    if not docs:
-        logger.info("All documents already have embeddings — skipping embed pass.")
-        return
+        for doc, emb in zip(to_encode, embeddings):
+            db_module.update_embedding(conn, doc["id"], emb.astype("float32").tobytes())
 
-    # Reuse embeddings for documents whose content matches an already-encoded row.
-    # This avoids re-encoding identical pages on incremental re-crawls and across
-    # sources/versions once multi-version crawling is active.
-    to_encode: list = []
-    reused = 0
-    for doc in docs:
-        existing = db_module.get_embedding_by_hash(conn, doc["content_hash"])
-        if existing is not None:
-            db_module.update_embedding(conn, doc["id"], existing)
-            reused += 1
-        else:
-            to_encode.append(doc)
-    if reused:
         conn.commit()
-        logger.info("Reused %d embedding(s) from matching content_hash.", reused)
-
-    if not to_encode:
-        logger.info("Embedding pass complete — all %d via hash reuse.", reused)
-        return
-
-    logger.info("Loading embedding model (all-MiniLM-L6-v2)…")
-    from sentence_transformers import SentenceTransformer  # noqa: PLC0415
-    model = SentenceTransformer("all-MiniLM-L6-v2")
-
-    logger.info("Generating embeddings for %d documents…", len(to_encode))
-    texts = [f"{doc['title']}\n\n{doc['content_md']}" for doc in to_encode]
-
-    # Batch encode — sentence-transformers handles padding/truncation internally.
-    # show_progress_bar gives a tqdm bar for longer runs.
-    embeddings = model.encode(
-        texts,
-        normalize_embeddings=True,
-        batch_size=32,
-        show_progress_bar=True,
-    )
-
-    for doc, emb in zip(to_encode, embeddings):
-        db_module.update_embedding(conn, doc["id"], emb.astype("float32").tobytes())
-
-    conn.commit()
-    logger.info(
-        "Embedding pass complete — %d encoded, %d reused from hash.",
-        len(to_encode), reused,
-    )
+        logger.info(
+            "Embedding pass complete — %d encoded, %d reused from hash.",
+            len(to_encode), reused,
+        )
+    finally:
+        conn.close()
 
 
 def _dedup_pass(args: argparse.Namespace) -> None:
@@ -373,11 +374,14 @@ def _dedup_pass(args: argparse.Namespace) -> None:
     logger = logging.getLogger(__name__)
     conn = db_module.get_connection(args.db)
     db_module.init_db(conn)
-    n = db_module.run_dedup_pass(conn)
-    if n:
-        logger.info("Dedup pass complete — %d duplicate rows suppressed.", n)
-    else:
-        logger.info("Dedup pass complete — no cross-source duplicates found.")
+    try:
+        n = db_module.run_dedup_pass(conn)
+        if n:
+            logger.info("Dedup pass complete — %d duplicate rows suppressed.", n)
+        else:
+            logger.info("Dedup pass complete — no cross-source duplicates found.")
+    finally:
+        conn.close()
 
 
 def main() -> None:

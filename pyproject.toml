@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "splunk-docs-mcp"
 version = "0.1.0"
-description = "MCP server for Splunk documentation — Phase 1: Enterprise Security 8.5 + Configuration File Reference"
+description = "MCP server for Splunk documentation — ES, Enterprise, Cloud, SOAR, Lantern (FTS5 + semantic search)"
 requires-python = ">=3.12"
 dependencies = [
     "mcp>=1.0.0,<2",

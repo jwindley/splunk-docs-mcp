@@ -158,8 +158,8 @@ def _extract_title(html: str, url: str) -> str:
         raw = title_tag.get_text(strip=True)
         return raw.split("|")[0].split(" - ")[0].strip()
 
-    # Last resort: derive from URL slug
-    return urlparse(url).path.rstrip("/").rsplit("/", 1)[-1].replace("-", " ").title()
+    # Last resort: derive from URL slug (empty for root URLs like lantern.splunk.com/)
+    return urlparse(url).path.rstrip("/").rsplit("/", 1)[-1].replace("-", " ").title() or "Untitled"
 
 
 # ---------------------------------------------------------------------------

@@ -37,37 +37,49 @@ def merge_dbs(source_db_paths: list[Path], output_path: Path) -> None:
     """Merge per-source DBs into a single output DB and rebuild FTS5."""
     conn = db_module.get_connection(output_path)
     db_module.init_db(conn)
+    try:
+        total = 0
+        for src_path in source_db_paths:
+            count = db_module.merge_source_db(conn, src_path)
+            print(f"  {src_path.name}: {count} rows inserted")
+            total += count
 
-    total = 0
-    for src_path in source_db_paths:
-        count = db_module.merge_source_db(conn, src_path)
-        print(f"  {src_path.name}: {count} rows inserted")
-        total += count
+        source_pairs = get_source_version_pairs()
+        if source_pairs:
+            print("Running cross-version content merge (Option B)…")
+            n_merged = db_module.run_version_merge_pass(conn, source_pairs)
+            if n_merged:
+                print(f"Version merge complete — {n_merged} identical rows collapsed into parent rows")
+            else:
+                print("Version merge complete — no duplicate content found across versions")
 
-    source_pairs = get_source_version_pairs()
-    if source_pairs:
-        print("Running cross-version content merge (Option B)…")
-        n_merged = db_module.run_version_merge_pass(conn, source_pairs)
-        if n_merged:
-            print(f"Version merge complete — {n_merged} identical rows collapsed into parent rows")
-        else:
-            print("Version merge complete — no duplicate content found across versions")
+        print("Rebuilding FTS5 index…")
+        conn.execute("INSERT INTO documents_fts(documents_fts) VALUES('rebuild')")
+        conn.commit()
 
-    print("Rebuilding FTS5 index…")
-    conn.execute("INSERT INTO documents_fts(documents_fts) VALUES('rebuild')")
-    conn.commit()
+        print("Running cross-source deduplication…")
+        n = db_module.run_dedup_pass(conn)
+        print(f"Dedup complete — {n} duplicate rows suppressed")
 
-    print("Running cross-source deduplication…")
-    n = db_module.run_dedup_pass(conn)
-    print(f"Dedup complete — {n} duplicate rows suppressed")
-
-    print(f"Merge complete — {total} rows total in {output_path}")
+        print(f"Merge complete — {total} rows total in {output_path}")
+    finally:
+        # Checkpoint the WAL into the main DB file before closing so that callers
+        # (e.g. setup.py) can safely rename/move the DB without losing un-flushed pages.
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        conn.close()
 
 
 def export_sources(merged_db_path: Path, export_dir: Path) -> None:
     """Export per-source DBs and manifest.json from a merged DB."""
     export_dir.mkdir(parents=True, exist_ok=True)
     conn = db_module.get_connection(merged_db_path)
+    try:
+        _export_sources_inner(conn, export_dir)
+    finally:
+        conn.close()
+
+
+def _export_sources_inner(conn, export_dir: Path) -> None:
 
     # Build a mapping of derived→parent so we can include shared rows in n-1 exports.
     from .config import get_source_version_pairs  # noqa: PLC0415

@@ -22,10 +22,6 @@ the post-crawl pass in cli.py.  The `search_docs_semantic` function loads all
 embeddings into a NumPy matrix and computes cosine similarity in-process; this
 is fast enough for the current corpus size (~9 000+ pages, ~20 000+ rows with chunks).
 
-Future extensibility
---------------------
-SPL examples library (Phase 2+): add the `spl_examples` table below and a
-matching FTS5 table.  The rest of the codebase is unaffected.
 """
 
 import hashlib
@@ -119,7 +115,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS crawl_state (
             url          TEXT PRIMARY KEY,
             source       TEXT NOT NULL,
-            status       TEXT NOT NULL,   -- 'fetched' | 'skipped' | 'failed'
+            status       TEXT NOT NULL,   -- 'fetched' | 'skipped' | 'failed' | 'dead'
             error        TEXT,
             attempted_at TEXT NOT NULL
         );
@@ -259,6 +255,14 @@ def upsert_document(conn: sqlite3.Connection, doc: dict) -> None:
                                END
         """,
         doc,
+    )
+    # When content changes the ON CONFLICT resets has_chunks=0, leaving stale chunk
+    # rows that chunk_document() will never overwrite (it only runs on has_chunks=0
+    # rows longer than CHUNK_THRESHOLD).  Delete them now so they don't linger.
+    conn.execute(
+        "DELETE FROM documents WHERE chunk_of = ? "
+        "AND NOT EXISTS (SELECT 1 FROM documents p WHERE p.url = ? AND p.has_chunks = 1)",
+        (doc["url"], doc["url"]),
     )
     conn.commit()
 
@@ -477,8 +481,8 @@ def run_version_merge_pass(
                 tags.append(derived_version)
             new_tags = json.dumps(tags)
             conn.execute(
-                "UPDATE documents SET version_tags = ? WHERE id = ?",
-                (new_tags, parent["id"]),
+                "UPDATE documents SET version_tags = ? WHERE id = ? OR chunk_of = ?",
+                (new_tags, parent["id"], parent["url"]),
             )
             parent_map[cmh]["version_tags"] = new_tags
 
@@ -629,7 +633,6 @@ def chunk_document(
 
     for i, chunk_text in enumerate(chunks):
         chunk_url = f"{parent['url']}#chunk-{i}"
-        chunk_hash = hashlib.sha256(chunk_text.encode()).hexdigest()
         chunk_md_hash = hashlib.sha256(chunk_text.encode()).hexdigest()
         conn.execute(
             """
@@ -656,7 +659,10 @@ def chunk_document(
                 parent["slug"],
                 parent["file_path"],
                 chunk_text,
-                chunk_hash,
+                parent["content_hash"],  # inherits parent's raw-HTML hash; content_hash
+                                         # on chunks has no raw-HTML meaning, but using
+                                         # the parent hash enables correct embedding reuse
+                                         # across re-crawls via get_embedding_by_hash()
                 chunk_md_hash,
                 parent.get("version_tags") or json.dumps([parent["version"]]),
                 parent["crawled_at"],

@@ -230,6 +230,12 @@ async def crawl_source(
             "[%s] Retry pass: re-attempting %d failed URL(s)…",
             source.source_id, len(failed),
         )
+        # H4: snapshot stats before retry so _process_url's increments during the
+        # retry workers don't double-count with the manual delta applied below.
+        pre_retry_fetched = stats.fetched
+        pre_retry_failed = stats.failed
+        pre_retry_skipped = stats.skipped
+
         for url in failed:
             queue.put_nowait(url)
         retry_workers = [
@@ -241,7 +247,11 @@ async def crawl_source(
             w.cancel()
         await asyncio.gather(*retry_workers, return_exceptions=True)
 
-        # Update stats to reflect retry outcomes
+        # Discard worker increments; derive correct delta from crawl_state.
+        stats.fetched = pre_retry_fetched
+        stats.failed = pre_retry_failed
+        stats.skipped = pre_retry_skipped
+
         still_failed = get_failed_urls(conn, source.source_id)
         recovered = len(failed) - len(still_failed)
         if recovered:
@@ -354,8 +364,11 @@ async def _process_url(
 
     new_hash = hashlib.sha256(html.encode()).hexdigest()
 
+    # H1: use final_url as the canonical storage key so get_page(final_url) finds
+    # the document. get_content_hash also uses final_url so the hash-change check
+    # compares against the correct existing row on incremental re-crawls.
     async with conn_lock:
-        existing_hash = get_content_hash(conn, url)
+        existing_hash = get_content_hash(conn, final_url)
 
     if not full and existing_hash == new_hash:
         async with conn_lock:
@@ -363,16 +376,23 @@ async def _process_url(
             mark_crawl_state(conn, url, source.source_id, "skipped")
         logger.debug(f"  SKIP {url} (unchanged)")
     else:
-        page = extract_page(html, url, source)
+        page = extract_page(html, final_url, source)
         if page:
             file_path = write_markdown_file(page, docs_dir)
             doc = page.to_doc_dict(file_path)
             async with conn_lock:
                 upsert_document(conn, doc)
                 stats.fetched += 1
+                mark_crawl_state(conn, url, source.source_id, "fetched")
             logger.info(f"  + [{source.source_id}] {page.title[:70]}")
-        async with conn_lock:
-            mark_crawl_state(conn, url, source.source_id, "fetched")
+        else:
+            # H5: extraction returned None (< 50 chars usable content).  Mark as
+            # skipped rather than fetched so the miss is visible in stats and the
+            # URL could be reconsidered in a future --full run.
+            logger.debug(f"  EMPTY {url}: no extractable content")
+            async with conn_lock:
+                stats.skipped += 1
+                mark_crawl_state(conn, url, source.source_id, "skipped")
 
     # Discover and enqueue links (even from skipped pages — content unchanged
     # but new pages may have been linked from this one since last crawl).
