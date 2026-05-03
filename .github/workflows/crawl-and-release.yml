@@ -3,7 +3,12 @@ name: Crawl and release
 on:
   schedule:
     - cron: "0 2 * * 0"   # every Sunday at 02:00 UTC
-  workflow_dispatch:        # manual trigger
+  workflow_dispatch:
+    inputs:
+      full_recrawl:
+        description: "Force full re-crawl (bypasses incremental hash-skip; use after crawler bug fixes)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -48,7 +53,11 @@ jobs:
             splunk-db-${{ matrix.source }}-
 
       - name: Crawl ${{ matrix.source }}
-        run: uv run splunk-crawl --sources ${{ matrix.source }} --db data/${{ matrix.source }}.db --full
+        run: |
+          uv run splunk-crawl \
+            --sources ${{ matrix.source }} \
+            --db data/${{ matrix.source }}.db \
+            ${{ inputs.full_recrawl == 'true' && '--full' || '' }}
 
       - name: Save per-source DB cache
         if: always()
@@ -119,7 +128,7 @@ jobs:
           uv run splunk-crawl \
             --sources ${{ matrix.source }} \
             --db data/${{ matrix.source }}.db \
-            --full \
+            ${{ inputs.full_recrawl == 'true' && '--full' || '' }} \
             --derive-db data/${{ matrix.derive_db }}.db
 
       - name: Save per-source DB cache
@@ -161,6 +170,21 @@ jobs:
           pattern: db-*
           merge-multiple: true
           path: data/
+
+      - name: Verify primary sources succeeded
+        run: |
+          MISSING=""
+          for src in enterprise-security admin-manual splunk-enterprise splunk-cloud \
+                     soar-on-premises soar-cloud lantern; do
+            if [ ! -f "data/${src}.db" ]; then
+              MISSING="$MISSING $src"
+            fi
+          done
+          if [ -n "$MISSING" ]; then
+            echo "ERROR: primary source DBs missing:$MISSING — aborting release"
+            exit 1
+          fi
+          echo "All primary sources present."
 
       - name: Merge per-source DBs
         run: |
