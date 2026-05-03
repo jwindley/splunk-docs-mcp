@@ -24,6 +24,7 @@ Goal: **current released version + n−1** for each product. ITSI and Observabil
 | `enterprise-security-8-4` | Splunk Enterprise Security 8.4 | 8.4 | `help.splunk.com/en/splunk-enterprise-security-8/` | 431 | ✅ OK — 8.4 has fewer pages; pci-compliance and CIM are 8.5-only sections |
 | `enterprise-security-8-3` | Splunk Enterprise Security 8.3 | 8.3 | `help.splunk.com/en/splunk-enterprise-security-8/` | 351 | ✅ OK |
 | `admin-manual` | Splunk Configuration File Reference 10.2 | 10.2 | `help.splunk.com/en/data-management/splunk-enterprise-admin-manual/10.2/configuration-file-reference/` | 216 | ✅ OK |
+| `admin-manual-10-0` | Splunk Configuration File Reference 10.0 | 10.0 | `help.splunk.com/en/data-management/splunk-enterprise-admin-manual/10.0/configuration-file-reference/` | TBD | ✅ Added (derives from admin-manual) |
 | `splunk-enterprise` | Splunk Enterprise 10.2 | 10.2 | `help.splunk.com/en/splunk-enterprise/` | 3,549 | ✅ OK |
 | `splunk-cloud` | Splunk Cloud Platform 10.3.2512 | 10.3.2512 | `help.splunk.com/en/splunk-cloud-platform/` | 2,658 | ✅ OK |
 | `soar-on-premises` | Splunk SOAR On-Premises 8.5.0 | 8.5.0 | `help.splunk.com/en/splunk-soar/soar-on-premises/` | TBD | ✅ Added |
@@ -37,7 +38,7 @@ No blocking known issues.
 
 ## Distribution Model (Phase 2 — complete)
 
-- **GitHub Actions** crawls weekly (Sunday 02:00 UTC) + `workflow_dispatch`; 10-source matrix (`crawl` + `crawl-derived` jobs); aggregation job merges (skipping missing DBs) + exports + publishes release
+- **GitHub Actions** crawls weekly (Sunday 02:00 UTC) + `workflow_dispatch`; 11-source matrix (`crawl` + `crawl-derived` jobs); aggregation job merges (skipping missing DBs) + exports + publishes release
 - **Release assets:** `splunk_docs.db` (full merged), `splunk_docs_<source>.db` (per-source), `manifest.json`
 - **`splunk-setup`** interactive menu — select sources or `all`; downloads per-source DBs, merges, cleans up WAL temp files
 - **`splunk-merge`** combines per-source DBs; `--export-sources` generates per-source files + `manifest.json`

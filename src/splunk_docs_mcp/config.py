@@ -192,6 +192,25 @@ PHASE1_SOURCES: list[CrawlSource] = [
         blocked_path_prefixes=_HELP_BLOCKED,
     ),
     CrawlSource(
+        source_id="admin-manual-10-0",
+        display_name="Splunk Configuration File Reference 10.0",
+        version="10.0",
+        seed_urls=[
+            # help.splunk.com nav always links to 10.2; derive 10.0 URLs from 10.2 crawl.
+            # Direct seed as fallback in case landing-page slug differs from derived URL.
+            (
+                "https://help.splunk.com/en/data-management/splunk-enterprise-admin-manual"
+                "/10.0/configuration-file-reference/10.0.0-configuration-file-reference"
+            ),
+        ],
+        url_prefix=(
+            "https://help.splunk.com/en/data-management/splunk-enterprise-admin-manual"
+            "/10.0/configuration-file-reference/"
+        ),
+        blocked_path_prefixes=_HELP_BLOCKED,
+        derive_from="admin-manual",
+    ),
+    CrawlSource(
         source_id="splunk-enterprise",
         display_name="Splunk Enterprise 10.2",
         version="10.2",

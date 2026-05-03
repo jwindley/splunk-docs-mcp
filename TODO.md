@@ -6,12 +6,6 @@ _Last updated: 2026-05-03_
 
 ## 🟢 Content expansion (Phase 5)
 
-### n-1 for admin-manual (config file reference)
-- Straightforward: `/10.2/` is in the URL prefix, so URL derivation works the same as ES
-- Add a new `CrawlSource` in `config.py` with `derive_from="admin-manual"` pointing at the previous version
-- Need to confirm what the previous version is (likely 9.4 or 9.3 — check help.splunk.com)
-- Low effort, high value: conf file stanzas change subtly between versions and it matters
-
 ### Splunk REST API docs
 - Splunk Enterprise and Cloud both have a REST API reference at a separate URL tree on help.splunk.com
 - Identify the seed URL and `url_prefix` for the REST API reference (e.g. `help.splunk.com/en/splunk-enterprise/rest-api-reference/`)
@@ -58,6 +52,15 @@ _Last updated: 2026-05-03_
 ## ⚫ Priority — Future / optional
 
 - [ ] **Add ITSI, Observability** — most-requested missing products
+
+---
+
+## ✅ Done (2026-05-03) — Phase 5: admin-manual n-1
+
+### n-1 for admin-manual (config file reference) ✅
+- Previous version is 10.0 (versions available: 10.2, 10.0, 9.4, 9.3… — no 10.1 published)
+- Added `admin-manual-10-0` CrawlSource in `config.py` with `derive_from="admin-manual"`
+- Added to `crawl-derived` GHA matrix; merge step and release notes updated
 
 ---
 
