@@ -128,23 +128,23 @@ def test_merge_dbs_runs_dedup_pass(tmp_path):
 
 def test_merge_dbs_runs_version_merge_pass(tmp_path):
     es_db = tmp_path / "enterprise-security.db"
-    es84_db = tmp_path / "enterprise-security-8-4.db"
+    esn1_db = tmp_path / "enterprise-security-n1.db"
     output_db = tmp_path / "merged.db"
 
     shared_content = "Same page content in ES 8.5 and 8.4."
     _make_source_db(es_db, [
         _doc("https://es.test/page/8.5", "enterprise-security", "8.5", shared_content),
     ])
-    _make_source_db(es84_db, [
-        _doc("https://es.test/page/8.4", "enterprise-security-8-4", "8.4", shared_content),
+    _make_source_db(esn1_db, [
+        _doc("https://es.test/page/8.4", "enterprise-security-n1", "8.4", shared_content),
     ])
 
-    merge_dbs([es_db, es84_db], output_db)
+    merge_dbs([es_db, esn1_db], output_db)
 
     conn = _open(output_db)
     # Derived row should have been deleted
     derived = conn.execute(
-        "SELECT * FROM documents WHERE source='enterprise-security-8-4'"
+        "SELECT * FROM documents WHERE source='enterprise-security-n1'"
     ).fetchone()
     assert derived is None
 
@@ -339,7 +339,7 @@ def test_export_sources_n1_manifest_includes_shared_pages(tmp_path):
     )
     # Unique 8.4 page that wasn't collapsed
     upsert_document(conn, _doc(
-        "https://es.test/unique-84", "enterprise-security-8-4", "8.4", "Unique 8.4 content."
+        "https://es.test/unique-84", "enterprise-security-n1", "8.4", "Unique 8.4 content."
     ))
     conn.commit()
     conn.close()
@@ -349,7 +349,7 @@ def test_export_sources_n1_manifest_includes_shared_pages(tmp_path):
     manifest = json.loads((export_dir / "manifest.json").read_text())
     by_source = {s["source_id"]: s for s in manifest["sources"]}
 
-    # The 8.4 export has 1 unique page; 1 shared page lives in the parent DB
-    assert by_source["enterprise-security-8-4"]["pages"] == 1
-    assert by_source["enterprise-security-8-4"]["shared_pages"] == 1
-    assert by_source["enterprise-security-8-4"]["parent_source_id"] == "enterprise-security"
+    # The n1 export has 1 unique page; 1 shared page lives in the parent DB
+    assert by_source["enterprise-security-n1"]["pages"] == 1
+    assert by_source["enterprise-security-n1"]["shared_pages"] == 1
+    assert by_source["enterprise-security-n1"]["parent_source_id"] == "enterprise-security"

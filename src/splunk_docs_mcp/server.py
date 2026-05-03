@@ -182,21 +182,22 @@ mcp = FastMCP(
         "to retrieve the current documentation first, then answer from that.\n\n"
 
         "Available sources (use source= to target one; combine with version= to pinpoint):\n"
-        "  enterprise-security      — Splunk Enterprise Security 8.5\n"
-        "  enterprise-security-8-4  — Splunk Enterprise Security 8.4\n"
-        "  enterprise-security-8-3  — Splunk Enterprise Security 8.3\n"
-        "  admin-manual             — Splunk Configuration File Reference 10.2\n"
-        "  splunk-enterprise        — Splunk Enterprise 10.2\n"
-        "  splunk-cloud             — Splunk Cloud Platform 10.3.2512\n"
-        "  soar-on-premises         — Splunk SOAR On-Premises 8.5.0\n"
-        "  soar-on-premises-8-4-0   — Splunk SOAR On-Premises 8.4.0\n"
+        "  enterprise-security      — Splunk Enterprise Security (current)\n"
+        "  enterprise-security-n1   — Splunk Enterprise Security (n-1)\n"
+        "  enterprise-security-n2   — Splunk Enterprise Security (n-2)\n"
+        "  admin-manual             — Splunk Configuration File Reference (current)\n"
+        "  admin-manual-n1          — Splunk Configuration File Reference (n-1)\n"
+        "  splunk-enterprise        — Splunk Enterprise (current)\n"
+        "  splunk-cloud             — Splunk Cloud Platform (current)\n"
+        "  soar-on-premises         — Splunk SOAR On-Premises (current)\n"
+        "  soar-on-premises-n1      — Splunk SOAR On-Premises (n-1)\n"
         "  soar-cloud               — Splunk SOAR Cloud (current)\n"
         "  lantern                  — Splunk Lantern (use-case guidance, best practices)\n\n"
         "Version filter — REQUIRED when the user names a specific version:\n"
         "  If the user mentions '8.4', '8.3', or any specific release, you MUST include\n"
         "  version= in every search call. Without it, searches return mostly current-version\n"
         "  results and you will incorrectly report that older versions are not indexed.\n"
-        "  Valid values: '8.3', '8.4', '8.5', '8.5.0', '8.4.0', '10.2', '10.3.2512', 'current'.\n"
+        "  Valid values: '8.3', '8.4', '8.5', '8.5.0', '8.4.0', '10.0', '10.2', '10.3.2512', 'current'.\n"
         "  Example: search_docs('correlation search', source='enterprise-security', version='8.4')\n"
         "  Never tell the user a version is unavailable without first searching with version= set.\n\n"
 
@@ -277,9 +278,9 @@ def search_docs(
         str | None,
         Field(description=(
             "Limit search to a specific source. "
-            "Options: 'enterprise-security', 'enterprise-security-8-4', "
-            "'enterprise-security-8-3', 'admin-manual', 'splunk-enterprise', "
-            "'splunk-cloud', 'lantern'. "
+            "Options: 'enterprise-security', 'enterprise-security-n1', 'enterprise-security-n2', "
+            "'admin-manual', 'admin-manual-n1', 'splunk-enterprise', 'splunk-cloud', "
+            "'soar-on-premises', 'soar-on-premises-n1', 'soar-cloud', 'lantern'. "
             "Omit to search across all indexed sources."
         )),
     ] = None,
@@ -342,9 +343,9 @@ def search_docs_semantic(
         str | None,
         Field(description=(
             "Limit search to a specific source. "
-            "Options: 'enterprise-security', 'enterprise-security-8-4', "
-            "'enterprise-security-8-3', 'admin-manual', 'splunk-enterprise', "
-            "'splunk-cloud', 'lantern'. "
+            "Options: 'enterprise-security', 'enterprise-security-n1', 'enterprise-security-n2', "
+            "'admin-manual', 'admin-manual-n1', 'splunk-enterprise', 'splunk-cloud', "
+            "'soar-on-premises', 'soar-on-premises-n1', 'soar-cloud', 'lantern'. "
             "Omit to search across all indexed sources."
         )),
     ] = None,
@@ -417,10 +418,9 @@ def search_docs_hybrid(
         str | None,
         Field(description=(
             "Limit search to a specific source. "
-            "Options: 'enterprise-security', 'enterprise-security-8-4', "
-            "'enterprise-security-8-3', 'admin-manual', 'splunk-enterprise', "
-            "'splunk-cloud', 'soar-on-premises', 'soar-on-premises-8-4-0', "
-            "'soar-cloud', 'lantern'. "
+            "Options: 'enterprise-security', 'enterprise-security-n1', 'enterprise-security-n2', "
+            "'admin-manual', 'admin-manual-n1', 'splunk-enterprise', 'splunk-cloud', "
+            "'soar-on-premises', 'soar-on-premises-n1', 'soar-cloud', 'lantern'. "
             "Omit to search across all indexed sources."
         )),
     ] = None,

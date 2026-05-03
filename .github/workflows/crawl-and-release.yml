@@ -77,13 +77,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - source: enterprise-security-8-4
+          - source: enterprise-security-n1
             derive_db: enterprise-security
-          - source: enterprise-security-8-3
+          - source: enterprise-security-n2
             derive_db: enterprise-security
-          - source: admin-manual-10-0
+          - source: admin-manual-n1
             derive_db: admin-manual
-          - source: soar-on-premises-8-4-0
+          - source: soar-on-premises-n1
             derive_db: soar-on-premises
 
     runs-on: ubuntu-latest
@@ -182,9 +182,9 @@ jobs:
       - name: Merge per-source DBs
         run: |
           DBS=""
-          for src in enterprise-security enterprise-security-8-4 enterprise-security-8-3 \
-                     admin-manual admin-manual-10-0 splunk-enterprise splunk-cloud \
-                     soar-on-premises soar-on-premises-8-4-0 soar-cloud lantern; do
+          for src in enterprise-security enterprise-security-n1 enterprise-security-n2 \
+                     admin-manual admin-manual-n1 splunk-enterprise splunk-cloud \
+                     soar-on-premises soar-on-premises-n1 soar-cloud lantern; do
             if [ -f "data/${src}.db" ]; then
               DBS="$DBS data/${src}.db"
             else

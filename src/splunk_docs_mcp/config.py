@@ -192,7 +192,7 @@ PHASE1_SOURCES: list[CrawlSource] = [
         blocked_path_prefixes=_HELP_BLOCKED,
     ),
     CrawlSource(
-        source_id="admin-manual-10-0",
+        source_id="admin-manual-n1",
         display_name="Splunk Configuration File Reference 10.0",
         version="10.0",
         seed_urls=[
@@ -236,7 +236,7 @@ PHASE1_SOURCES: list[CrawlSource] = [
         blocked_path_prefixes=_HELP_BLOCKED,
     ),
     CrawlSource(
-        source_id="enterprise-security-8-4",
+        source_id="enterprise-security-n1",
         display_name="Splunk Enterprise Security 8.4",
         version="8.4",
         seed_urls=[
@@ -255,7 +255,7 @@ PHASE1_SOURCES: list[CrawlSource] = [
         derive_from="enterprise-security",
     ),
     CrawlSource(
-        source_id="enterprise-security-8-3",
+        source_id="enterprise-security-n2",
         display_name="Splunk Enterprise Security 8.3",
         version="8.3",
         seed_urls=[
@@ -290,7 +290,7 @@ PHASE1_SOURCES: list[CrawlSource] = [
         blocked_path_prefixes=_HELP_BLOCKED,
     ),
     CrawlSource(
-        source_id="soar-on-premises-8-4-0",
+        source_id="soar-on-premises-n1",
         display_name="Splunk SOAR On-Premises 8.4.0",
         version="8.4.0",
         seed_urls=[

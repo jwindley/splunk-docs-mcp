@@ -122,18 +122,21 @@ Replace `/absolute/path/to/splunk-docs-mcp` with the path where you cloned the r
 
 ## What's indexed
 
-The goal is to keep the **current released version plus the previous version (n−1)** for each major product. ITSI, SOAR, Observability, and Mission Control are planned additions.
+The goal is to keep the **current released version plus the previous version (n−1)** for each major product. Source IDs use a stable `-n1` / `-n2` suffix so the identifier doesn't change when versions rotate — only the version metadata inside the source updates.
+
+**Version granularity:** coverage is at the **minor version** level (e.g. 8.4, 8.5, 10.2). Patch releases (8.5.1, 10.2.3) are not tracked separately — use the nearest minor version when filtering.
 
 | Source ID | Product | Version |
 |-----------|---------|---------|
 | `enterprise-security` | Splunk Enterprise Security | 8.5 (current) |
-| `enterprise-security-8-4` | Splunk Enterprise Security | 8.4 (n−1) |
-| `enterprise-security-8-3` | Splunk Enterprise Security | 8.3 (n−2) |
+| `enterprise-security-n1` | Splunk Enterprise Security | 8.4 (n−1) |
+| `enterprise-security-n2` | Splunk Enterprise Security | 8.3 (n−2) |
 | `splunk-enterprise` | Splunk Enterprise | 10.2 (current) |
 | `splunk-cloud` | Splunk Cloud Platform | 10.3.2512 (current) |
-| `admin-manual` | Splunk Configuration File Reference | 10.2 |
+| `admin-manual` | Splunk Configuration File Reference | 10.2 (current) |
+| `admin-manual-n1` | Splunk Configuration File Reference | 10.0 (n−1) |
 | `soar-on-premises` | Splunk SOAR On-Premises | 8.5.0 (current) |
-| `soar-on-premises-8-4-0` | Splunk SOAR On-Premises | 8.4.0 (n−1) |
+| `soar-on-premises-n1` | Splunk SOAR On-Premises | 8.4.0 (n−1) |
 | `soar-cloud` | Splunk SOAR Cloud | current |
 | `lantern` | Splunk Lantern | current |
 

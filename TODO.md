@@ -59,7 +59,7 @@ _Last updated: 2026-05-03_
 
 ### n-1 for admin-manual (config file reference) ✅
 - Previous version is 10.0 (versions available: 10.2, 10.0, 9.4, 9.3… — no 10.1 published)
-- Added `admin-manual-10-0` CrawlSource in `config.py` with `derive_from="admin-manual"`
+- Added `admin-manual-n1` CrawlSource in `config.py` with `derive_from="admin-manual"`
 - Added to `crawl-derived` GHA matrix; merge step and release notes updated
 
 ---
@@ -107,7 +107,7 @@ _Last updated: 2026-05-03_
 - `export_sources()` includes shared rows in n-1 per-source exports
 
 ### SOAR indexing
-- `soar-on-premises` 8.5.0 (current) and `soar-on-premises-8-4-0` 8.4.0 (n-1) added
+- `soar-on-premises` 8.5.0 (current) and `soar-on-premises-n1` 8.4.0 (n-1) added
 - `soar-cloud` (current) added
 - URL derivation for SOAR 8.4.0 via `derive_from="soar-on-premises"`
 
