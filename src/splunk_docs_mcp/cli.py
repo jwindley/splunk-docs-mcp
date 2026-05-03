@@ -326,6 +326,7 @@ def _embed_pass(args: argparse.Namespace, sources: list[CrawlSource]) -> None:
             existing = db_module.get_embedding_by_hash(conn, doc["content_hash"])
             if existing is not None:
                 db_module.update_embedding(conn, doc["id"], existing)
+                db_module.upsert_vec_embedding(conn, doc["id"], existing)
                 reused += 1
             else:
                 to_encode.append(doc)
@@ -352,7 +353,9 @@ def _embed_pass(args: argparse.Namespace, sources: list[CrawlSource]) -> None:
         )
 
         for doc, emb in zip(to_encode, embeddings):
-            db_module.update_embedding(conn, doc["id"], emb.astype("float32").tobytes())
+            emb_bytes = emb.astype("float32").tobytes()
+            db_module.update_embedding(conn, doc["id"], emb_bytes)
+            db_module.upsert_vec_embedding(conn, doc["id"], emb_bytes)
 
         conn.commit()
         logger.info(

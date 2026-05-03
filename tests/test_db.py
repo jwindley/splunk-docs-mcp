@@ -8,6 +8,7 @@ import json
 import sqlite3
 
 import pytest
+import sqlite_vec
 
 from splunk_docs_mcp.config import PHASE1_SOURCES
 from splunk_docs_mcp.db import (
@@ -32,6 +33,9 @@ from splunk_docs_mcp.db import (
 def conn():
     c = sqlite3.connect(":memory:")
     c.row_factory = sqlite3.Row
+    c.enable_load_extension(True)
+    sqlite_vec.load(c)
+    c.enable_load_extension(False)
     init_db(c)
     return c
 

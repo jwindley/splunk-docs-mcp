@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+import sqlite_vec
 
 # Remove any prior import so the patches below take effect on a clean load.
 for _key in list(sys.modules):
@@ -19,24 +20,23 @@ for _key in list(sys.modules):
         del sys.modules[_key]
 
 # Build an in-memory DB that the server will use for the whole test session.
+# sqlite_vec must be loaded before init_db so the vec0 virtual table can be created.
 from splunk_docs_mcp.db import init_db, upsert_document  # noqa: E402
 
-_test_conn = sqlite3.connect(":memory:")
+_test_conn = sqlite3.connect(":memory:", check_same_thread=False)
 _test_conn.row_factory = sqlite3.Row
+_test_conn.enable_load_extension(True)
+sqlite_vec.load(_test_conn)
+_test_conn.enable_load_extension(False)
 init_db(_test_conn)
 
-# Minimal mock for the embedding model.
+# Minimal mock for the embedding model — encode() returns a zero vector quickly.
 _mock_model = MagicMock()
 _mock_model.encode.return_value = np.zeros(384, dtype=np.float32)
-
-# Empty embedding matrix — signals "no embeddings generated yet".
-_empty_matrix = np.zeros((0, 384), dtype=np.float32)
-_empty_rows: list = []
 
 # Patch module-level initializations so importing server.py is fast + safe.
 with (
     patch("splunk_docs_mcp.db.get_connection", return_value=_test_conn),
-    patch("splunk_docs_mcp.db.get_all_embeddings", return_value=(_empty_matrix, _empty_rows)),
     patch("sentence_transformers.SentenceTransformer", return_value=_mock_model),
 ):
     import splunk_docs_mcp.server as server  # noqa: E402
@@ -124,8 +124,8 @@ def test_search_docs_semantic_invalid_source_returns_error():
 
 
 def test_search_docs_semantic_no_embeddings_returns_message():
-    # _embed_matrix has 0 rows so this should return the "no embeddings" message.
-    result = server.search_docs_semantic("configure risk score thresholds")
+    # vec_documents is empty in the test DB so this should return the no-results message.
+    result = server.search_docs_semantic("configure risk score thresholds zzz_unique_sem_999")
     assert isinstance(result, list)
     assert "message" in result[0]
 
@@ -233,3 +233,37 @@ def test_get_index_info_returns_stats_dict():
     assert "total_pages" in result
     assert "db_size_bytes" in result
     assert isinstance(result["total_pages"], int)
+
+
+# ---------------------------------------------------------------------------
+# search_docs_hybrid
+# ---------------------------------------------------------------------------
+
+
+def test_search_docs_hybrid_invalid_source_returns_error():
+    result = server.search_docs_hybrid("anything", source="not-a-real-source")
+    assert isinstance(result, list)
+    assert "error" in result[0]
+    assert "not-a-real-source" in result[0]["error"]
+
+
+def test_search_docs_hybrid_empty_index_returns_message():
+    result = server.search_docs_hybrid("zzz_hybrid_unlikely_token_xyz_999")
+    assert isinstance(result, list)
+    assert "message" in result[0]
+
+
+def test_search_docs_hybrid_returns_rrf_score():
+    upsert_document(_test_conn, _doc(
+        "https://es.test/hybrid-target",
+        "enterprise-security", "8.5",
+        "hybrid search reciprocal rank fusion BM25 semantic combined results",
+        section="search-guide",
+    ))
+    result = server.search_docs_hybrid("hybrid search reciprocal rank fusion")
+    assert isinstance(result, list)
+    assert "error" not in result[0]
+    if "message" not in result[0]:
+        assert "rrf_score" in result[0]
+        assert "score" not in result[0]
+        assert isinstance(result[0]["rrf_score"], float)

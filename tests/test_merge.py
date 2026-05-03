@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from splunk_docs_mcp.db import init_db, upsert_document
+from splunk_docs_mcp.db import get_connection, init_db, upsert_document
 from splunk_docs_mcp.merge import _export_source_db, export_sources, merge_dbs
 
 
@@ -38,8 +38,7 @@ def _doc(url, source, version, content, section="test-section"):
 
 def _make_source_db(path: Path, docs: list[dict]) -> None:
     """Create a per-source DB file populated with the given documents."""
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
+    conn = get_connection(path)
     init_db(conn)
     for doc in docs:
         upsert_document(conn, doc)
@@ -326,8 +325,7 @@ def test_export_sources_n1_manifest_includes_shared_pages(tmp_path):
 
     # Simulate a merged DB where version merge pass has already run:
     # ES 8.5 parent row has version_tags ["8.5", "8.4"] (shared with ES 8.4)
-    conn = sqlite3.connect(merged_db)
-    conn.row_factory = sqlite3.Row
+    conn = get_connection(merged_db)
     init_db(conn)
 
     # Parent row tagged as shared with 8.4

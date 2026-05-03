@@ -14,6 +14,7 @@ Configure in Claude Desktop / Claude Code:
 
 Tools
 -----
+search_docs_hybrid   — BM25 + semantic fused via RRF (default first choice)
 search_docs          — BM25 full-text search (exact keywords / config keys)
 search_docs_semantic — cosine-similarity vector search (natural language / concepts)
 get_page             — retrieve full Markdown for a URL
@@ -22,9 +23,12 @@ browse_section       — list all pages in a section with titles and URLs
 get_index_info       — stats: total pages, sources indexed, last crawl time
 """
 
+import concurrent.futures
+import functools
 import logging
 import sqlite3
 import sys
+import threading
 import time
 from typing import Annotated
 
@@ -36,10 +40,9 @@ from sentence_transformers import SentenceTransformer
 from .config import DB_PATH, SOURCES_BY_ID
 from .db import (
     get_connection,
-    get_all_embeddings,
     init_db,
     search_docs as db_search,
-    search_docs_semantic_from_matrix as db_search_semantic,
+    search_docs_semantic_vec as db_search_semantic_vec,
     get_page as db_get_page,
     list_sections as db_list_sections,
     browse_section as db_browse_section,
@@ -59,42 +62,109 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Embedding model — loaded once at startup so the first search_docs_semantic
-# call is not penalised by a 6-second model-load delay.
+# DB — opened synchronously (fast; just opens a file).
 # ---------------------------------------------------------------------------
 
-logger.info("Loading sentence-transformers model (all-MiniLM-L6-v2)…")
-_embed_model = SentenceTransformer("all-MiniLM-L6-v2")
-# Pre-warm PyTorch JIT with several representative-length strings.
-# A single short encode pre-warms the tokenizer but leaves longer-input JIT
-# paths uncompiled — first real queries then take ~450ms instead of ~50ms.
-# Batch-encoding five typical-length queries fully compiles all JIT paths.
-_embed_model.encode(
-    [
-        "warmup",
-        "how to configure correlation searches in enterprise security",
-        "transforms.conf configuration file reference lookup table",
-        "search head cluster replication factor peer nodes troubleshooting",
-        "alert actions notable events threat intelligence lookup dashboard",
-    ],
-    normalize_embeddings=True,
-)
-logger.info("Embedding model ready.")
-
-# ---------------------------------------------------------------------------
-# DB + embedding matrix — loaded at startup, not lazily.
-# Avoids a ~1s cold-start penalty on the very first tool call.
-# ---------------------------------------------------------------------------
-
-logger.info("Opening database and loading embedding matrix…")
+logger.info("Opening database…")
 _db: sqlite3.Connection = get_connection(DB_PATH)
 init_db(_db)
-_embed_matrix, _embed_rows = get_all_embeddings(_db)
-logger.info("Embedding cache ready (%d vectors).", _embed_matrix.shape[0])
+logger.info("Database ready.")
+
+# ---------------------------------------------------------------------------
+# Embedding model — loaded in a background thread so the server is available
+# immediately on startup. search_docs_semantic and search_docs_hybrid wait on
+# _model_ready before encoding queries; the wait returns instantly once set.
+# ---------------------------------------------------------------------------
+
+_model_ready = threading.Event()
+_embed_model: SentenceTransformer | None = None
+
+
+def _load_model() -> None:
+    global _embed_model
+    logger.info("Loading sentence-transformers model (all-MiniLM-L6-v2)…")
+    model = SentenceTransformer("all-MiniLM-L6-v2")
+    # Pre-warm PyTorch JIT — batch of representative-length strings compiles
+    # all JIT paths so the first real query is ~50ms, not ~450ms.
+    model.encode(
+        [
+            "warmup",
+            "how to configure correlation searches in enterprise security",
+            "transforms.conf configuration file reference lookup table",
+            "search head cluster replication factor peer nodes troubleshooting",
+            "alert actions notable events threat intelligence lookup dashboard",
+        ],
+        normalize_embeddings=True,
+    )
+    _embed_model = model
+    _model_ready.set()
+    logger.info("Embedding model ready.")
+
+
+threading.Thread(target=_load_model, daemon=True, name="model-loader").start()
 
 
 def _get_db() -> sqlite3.Connection:
     return _db
+
+
+# ---------------------------------------------------------------------------
+# LRU caches for search tools — keyed on (query, source, version, limit).
+# The DB connection is read-only during server lifetime so staleness is not
+# a concern within a session.
+# ---------------------------------------------------------------------------
+
+@functools.lru_cache(maxsize=128)
+def _search_docs_cached(
+    query: str, source: str | None, version: str | None, limit: int
+) -> list[dict]:
+    return db_search(_get_db(), query, source=source, version=version, limit=limit)
+
+
+@functools.lru_cache(maxsize=128)
+def _search_docs_semantic_cached(
+    query: str, source: str | None, version: str | None, limit: int
+) -> list[dict]:
+    _model_ready.wait()  # no-op once model is loaded; blocks only during startup
+    q_vec = _embed_model.encode(query, normalize_embeddings=True).astype(np.float32)
+    return db_search_semantic_vec(_get_db(), q_vec, source=source, version=version, limit=limit)
+
+
+@functools.lru_cache(maxsize=128)
+def _search_docs_hybrid_cached(
+    query: str, source: str | None, version: str | None, limit: int
+) -> list[dict]:
+    fetch_n = min(limit * 2, 20)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        bm25_future = executor.submit(_search_docs_cached, query, source, version, fetch_n)
+        sem_future = executor.submit(_search_docs_semantic_cached, query, source, version, fetch_n)
+        bm25_results = bm25_future.result()
+        sem_results = sem_future.result()
+
+    k = 60
+    rrf_scores: dict[str, float] = {}
+    docs: dict[str, dict] = {}
+
+    for rank, doc in enumerate(bm25_results, start=1):
+        url = doc.get("url", "")
+        if url:
+            rrf_scores[url] = rrf_scores.get(url, 0.0) + 1.0 / (k + rank)
+            docs[url] = doc  # BM25 result has snippet — prefer it
+
+    for rank, doc in enumerate(sem_results, start=1):
+        url = doc.get("url", "")
+        if url:
+            rrf_scores[url] = rrf_scores.get(url, 0.0) + 1.0 / (k + rank)
+            if url not in docs:
+                docs[url] = doc
+
+    ranked = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[:limit]
+    results = []
+    for url, rrf_score in ranked:
+        doc = {**docs[url], "rrf_score": round(rrf_score, 6)}
+        doc.pop("score", None)
+        results.append(doc)
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -144,18 +214,14 @@ mcp = FastMCP(
         "   → get_page(url)\n"
         "   DONE. Target: 3 calls.\n\n"
 
-        "3. TOPIC UNKNOWN — exact term, config key, or quoted phrase\n"
-        "   → search_docs(query, source=...)     [BM25 keyword search]\n"
-        "   → get_page(url)                      [read top 1–2 results]\n"
+        "3. TOPIC UNKNOWN — any query (DEFAULT PATH)\n"
+        "   → search_docs_hybrid(query, source=...)  [BM25 + semantic, RRF-fused]\n"
+        "   → get_page(url)                          [read top 1–2 results]\n"
         "   DONE. Target: 2–3 calls.\n\n"
 
-        "4. TOPIC UNKNOWN — concept question or natural-language description\n"
-        "   → search_docs_semantic(query, source=...)\n"
-        "   → get_page(url)                      [read top 1–2 results]\n"
-        "   DONE. Target: 2–3 calls.\n\n"
-
-        "5. SEARCH RETURNED POOR RESULTS\n"
-        "   → Switch tools once: keyword→semantic or semantic→keyword\n"
+        "4. POOR HYBRID RESULTS\n"
+        "   → search_docs(query, source=...)     [BM25 only — exact config keys, quoted phrases]\n"
+        "   OR search_docs_semantic(query, ...)  [semantic only — concept/natural-language]\n"
         "   → get_page(url) if anything useful appears\n"
         "   STOP. Do not reformulate and search again. Report what was found.\n\n"
 
@@ -178,10 +244,12 @@ mcp = FastMCP(
         "answer inferred from loosely related content.\n\n"
 
         "TOOL SELECTION GUIDE:\n"
-        "  search_docs          — exact config key (inputs.conf), quoted phrase "
-        "(\"notable event\"), specific setting name\n"
-        "  search_docs_semantic — concept questions (how do I reduce false positives), "
-        "natural language, or when keyword search returns nothing relevant\n"
+        "  search_docs_hybrid   — default first choice for any unknown topic; handles "
+        "exact terms and natural-language queries equally well via RRF fusion\n"
+        "  search_docs          — targeted fallback for exact config keys (inputs.conf), "
+        "quoted phrases (\"notable event\"), or specific setting names\n"
+        "  search_docs_semantic — targeted fallback for concept questions "
+        "(how do I reduce false positives) or when keyword search returns nothing relevant\n"
         "  browse_section       — preferred entry point when the topic area is already "
         "known; faster and more precise than searching\n"
         "  list_sections        — orientation only; use once to pick a section, then "
@@ -248,7 +316,7 @@ def search_docs(
             valid = ", ".join(SOURCES_BY_ID.keys())
             return [{"error": f"Unknown source '{source}'. Valid options: {valid}"}]
 
-        results = db_search(_get_db(), query, source=source, version=version, limit=limit)
+        results = _search_docs_cached(query, source, version, limit)
         if not results:
             return [{"message": "No results found. Try broader keywords or check get_index_info() to confirm the index is populated."}]
         return results
@@ -316,27 +384,87 @@ def search_docs_semantic(
             valid = ", ".join(SOURCES_BY_ID.keys())
             return [{"error": f"Unknown source '{source}'. Valid options: {valid}"}]
 
-        if _embed_matrix.shape[0] == 0:
-            return [{
-                "message": (
-                    "No embeddings found. Run 'uv run splunk-crawl' to generate them. "
-                    "You can also try search_docs() for keyword-based search."
-                )
-            }]
-
-        q_vec = _embed_model.encode(query, normalize_embeddings=True).astype(np.float32)
-        results = db_search_semantic(_embed_matrix, _embed_rows, q_vec, source=source, version=version, limit=limit)
+        results = _search_docs_semantic_cached(query, source, version, limit)
         if not results:
             return [{
                 "message": (
-                    "No embeddings found. Run 'uv run splunk-crawl' to generate them. "
-                    "You can also try search_docs() for keyword-based search."
+                    "No results found. Run 'uv run splunk-crawl' to generate embeddings, "
+                    "or try search_docs() for keyword-based search."
                 )
             }]
         return results
     finally:
         logger.info(
             "search_docs_semantic(query=%r, source=%r, version=%r, limit=%d) — %.1f ms",
+            query, source, version, limit, (time.perf_counter() - t0) * 1000,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tool: search_docs_hybrid
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def search_docs_hybrid(
+    query: Annotated[
+        str,
+        Field(description=(
+            "Search query — any form: exact term, config key, natural-language question, "
+            "or concept description. Combines BM25 and semantic search for best coverage."
+        )),
+    ],
+    source: Annotated[
+        str | None,
+        Field(description=(
+            "Limit search to a specific source. "
+            "Options: 'enterprise-security', 'enterprise-security-8-4', "
+            "'enterprise-security-8-3', 'admin-manual', 'splunk-enterprise', "
+            "'splunk-cloud', 'soar-on-premises', 'soar-on-premises-8-4-0', "
+            "'soar-cloud', 'lantern'. "
+            "Omit to search across all indexed sources."
+        )),
+    ] = None,
+    version: Annotated[
+        str | None,
+        Field(description=(
+            "Filter by product version. "
+            "Valid values: '8.3', '8.4', '8.5', '10.2', '10.3.2512', 'current'. "
+            "Combine with source= for precise targeting."
+        )),
+    ] = None,
+    limit: Annotated[
+        int,
+        Field(description="Maximum number of results to return (1–20).", ge=1, le=20),
+    ] = 5,
+) -> list[dict]:
+    """
+    Hybrid search combining BM25 keyword matching and semantic vector search,
+    fused via Reciprocal Rank Fusion (RRF).
+
+    Use this as the default first search for any unknown topic — it handles both
+    exact-term queries (like config key names) and natural-language questions
+    equally well, without needing to guess which search mode is more appropriate.
+
+    RRF score combines rank positions from both search methods; higher rrf_score
+    indicates a result that ranked well in one or both component searches.
+    Individual 'score' fields are omitted; use rrf_score for ranking comparison.
+
+    If results are poor, follow up with search_docs() for exact terms or
+    search_docs_semantic() for concept queries before giving up.
+    """
+    t0 = time.perf_counter()
+    try:
+        if source and source not in SOURCES_BY_ID:
+            valid = ", ".join(SOURCES_BY_ID.keys())
+            return [{"error": f"Unknown source '{source}'. Valid options: {valid}"}]
+
+        results = _search_docs_hybrid_cached(query, source, version, limit)
+        if not results:
+            return [{"message": "No results found. Try search_docs() or search_docs_semantic() with different terms, or check get_index_info() to confirm the index is populated."}]
+        return results
+    finally:
+        logger.info(
+            "search_docs_hybrid(query=%r, source=%r, version=%r, limit=%d) — %.1f ms",
             query, source, version, limit, (time.perf_counter() - t0) * 1000,
         )
 

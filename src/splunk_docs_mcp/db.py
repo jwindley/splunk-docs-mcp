@@ -31,6 +31,8 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+import sqlite_vec
+
 from splunk_docs_mcp.config import PHASE1_SOURCES
 
 # Heading and paragraph boundary patterns used by _split_content_smart
@@ -52,6 +54,9 @@ def get_connection(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.enable_load_extension(True)
+    sqlite_vec.load(conn)
+    conn.enable_load_extension(False)
     conn.execute("PRAGMA journal_mode=WAL")   # readers don't block writers
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA synchronous=NORMAL") # safe with WAL; faster than FULL
@@ -193,6 +198,26 @@ def init_db(conn: sqlite3.Connection) -> None:
     except sqlite3.OperationalError:
         pass
     conn.commit()
+
+    # Vector index (sqlite-vec) — ANN search replacing the in-process numpy scan.
+    # vec0 stores 384-dim float32 vectors; rowid matches documents.id.
+    conn.execute(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS vec_documents USING vec0(embedding float[384])"
+    )
+    conn.commit()
+
+    # One-time migration: populate vec_documents from existing documents.embedding BLOBs.
+    vec_count = conn.execute("SELECT COUNT(*) FROM vec_documents").fetchone()[0]
+    if vec_count == 0:
+        rows = conn.execute(
+            "SELECT id, embedding FROM documents WHERE embedding IS NOT NULL"
+        ).fetchall()
+        if rows:
+            conn.executemany(
+                "INSERT INTO vec_documents(rowid, embedding) VALUES (?, ?)",
+                [(r["id"], r["embedding"]) for r in rows],
+            )
+            conn.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -902,6 +927,17 @@ def update_embedding(
     )
 
 
+def upsert_vec_embedding(
+    conn: sqlite3.Connection, doc_id: int, embedding_bytes: bytes
+) -> None:
+    """Insert or replace a vector in vec_documents (vec0 requires delete+insert for updates)."""
+    conn.execute("DELETE FROM vec_documents WHERE rowid = ?", [doc_id])
+    conn.execute(
+        "INSERT INTO vec_documents(rowid, embedding) VALUES (?, ?)",
+        [doc_id, embedding_bytes],
+    )
+
+
 def get_documents_without_embeddings(
     conn: sqlite3.Connection, source_id: str | None = None
 ) -> list[sqlite3.Row]:
@@ -1031,6 +1067,78 @@ def search_docs_semantic_from_matrix(
                 "version": r["version"],
                 "section": r["section"],
                 "score": round(float(scores[i]), 4),
+                "crawled": (r["crawled_at"] or "")[:10],
+            }
+
+    return list(seen.values())
+
+
+def search_docs_semantic_vec(
+    conn: sqlite3.Connection,
+    query_vec: "numpy.ndarray",  # noqa: F821
+    source: str | None = None,
+    version: str | None = None,
+    limit: int = 5,
+) -> list[dict]:
+    """
+    ANN vector search via sqlite-vec (replaces the in-process numpy matrix scan).
+
+    Fetches limit*4 candidates from vec_documents, joins to documents for
+    metadata and source/version filtering, deduplicates chunk→parent, returns
+    top limit results ordered by cosine similarity (higher = better).
+    """
+    fetch_k = limit * 4
+
+    candidates = conn.execute(
+        "SELECT rowid, distance FROM vec_documents WHERE embedding MATCH ? AND k = ?",
+        [query_vec.tobytes(), fetch_k],
+    ).fetchall()
+    if not candidates:
+        return []
+
+    rowids = [r[0] for r in candidates]
+    dist_map = {r[0]: r[1] for r in candidates}
+
+    placeholders = ",".join("?" * len(rowids))
+    params: list = list(rowids)
+    filters = ""
+    if source:
+        filters += " AND source = ?"
+        params.append(source)
+    if version:
+        filters += (
+            " AND (version = ? OR EXISTS ("
+            "SELECT 1 FROM json_each(version_tags) jt WHERE jt.value = ?))"
+        )
+        params.append(version)
+        params.append(version)
+    else:
+        filters += " AND is_duplicate = 0"
+
+    rows = conn.execute(
+        f"SELECT id, url, title, source, version, section, chunk_of, crawled_at "
+        f"FROM documents WHERE id IN ({placeholders}){filters}",
+        params,
+    ).fetchall()
+
+    # Sort by distance ascending (closest = most similar)
+    sorted_rows = sorted([dict(r) for r in rows], key=lambda r: dist_map[r["id"]])
+
+    seen: dict[str, dict] = {}
+    for r in sorted_rows:
+        if len(seen) >= limit:
+            break
+        canonical = r["chunk_of"] if r["chunk_of"] else r["url"]
+        if canonical not in seen:
+            d = dist_map[r["id"]]
+            seen[canonical] = {
+                "url": canonical,
+                "title": r["title"].split(" [")[0],
+                "source": r["source"],
+                "version": r["version"],
+                "section": r["section"],
+                # L2 distance on unit vectors → cosine similarity: cos = 1 - d²/2
+                "score": round(1.0 - d * d / 2.0, 4),
                 "crawled": (r["crawled_at"] or "")[:10],
             }
 

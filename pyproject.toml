@@ -17,6 +17,7 @@ dependencies = [
     "sentence-transformers>=5.0.0,<6",
     "defusedxml>=0.7.0",
     "numpy>=1.26.0",
+    "sqlite-vec>=0.1.9",
 ]
 
 [project.scripts]
