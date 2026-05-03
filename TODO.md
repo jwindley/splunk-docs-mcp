@@ -38,14 +38,14 @@ _Last updated: 2026-05-03_
 
 ## 🟡 Operational improvements
 
-### Version rotation command (`splunk-rotate-versions`)
-- Currently when a new product version releases, config.py must be updated manually
-- There is no mechanism to drop n-2 content when current promotes to n-1
-- Add a CLI command (or update to `config.py` conventions) that:
-  1. Takes a source ID and new version as args
-  2. Updates `config.py` to rotate versions (new → current, current → n-1, n-1 → dropped or kept as n-2)
-  3. Optionally purges the dropped version's rows from the DB
-- Related: decide the policy on ES 8.3 — it's n-2 and was added during development. Keep it (low cost due to version merge) or drop it for cleanliness?
+### Version rotation command (`splunk-rotate-versions`) — Tier 2
+- versions.json is now the single source of truth (Tier 1 ✅ done)
+- Tier 2: add `splunk-discover-versions` CLI that fetches Splunk docs landing pages,
+  parses the version selector HTML, and rewrites versions.json automatically
+- GHA would run discovery before each crawl and auto-commit versions.json if changed
+- Blocker: need to confirm help.splunk.com version selector is in static HTML (not JS-rendered)
+- Related: decide the policy on ES 8.3 (enterprise-security-n2) — it's n-2 and was added during
+  development. Keep it (low cost due to version merge) or drop it for cleanliness?
 
 ---
 

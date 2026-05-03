@@ -1,0 +1,13 @@
+{
+  "enterprise-security": "8.5",
+  "enterprise-security-n1": "8.4",
+  "enterprise-security-n2": "8.3",
+  "admin-manual": "10.2",
+  "admin-manual-n1": "10.0",
+  "splunk-enterprise": "10.2",
+  "splunk-cloud": "10.3.2512",
+  "soar-on-premises": "8.5.0",
+  "soar-on-premises-n1": "8.4.0",
+  "soar-cloud": "current",
+  "lantern": "current"
+}

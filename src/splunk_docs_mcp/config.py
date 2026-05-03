@@ -1,11 +1,11 @@
 """
 Runtime constants and crawl-source definitions.
 
-To add a new crawl source (e.g. Lantern, core Splunk Enterprise docs):
-  1. Add a CrawlSource entry to PHASE1_SOURCES.
-  2. No other files need changing.
+To add a new crawl source: add a CrawlSource entry to PHASE1_SOURCES.
+To rotate product versions: edit versions.json — no Python changes needed.
 """
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -42,8 +42,8 @@ CRAWL_HEADERS = {
 class CrawlSource:
     """Defines a single documentation source to crawl.
 
-    Adding a new source (e.g. lantern.splunk.com) requires only a new
-    CrawlSource entry here — crawler, DB, and server code are source-agnostic.
+    Adding a new source requires only a new CrawlSource entry in PHASE1_SOURCES.
+    Rotating a product version requires only updating versions.json.
     """
 
     source_id: str
@@ -91,8 +91,21 @@ class CrawlSource:
 
 
 # ---------------------------------------------------------------------------
-# Phase 1 sources
+# Version data — loaded from versions.json at import time.
+# To rotate versions, edit versions.json only.
 # ---------------------------------------------------------------------------
+
+def _load_versions() -> dict[str, str]:
+    return json.loads((_PROJECT_ROOT / "versions.json").read_text())
+
+
+_V = _load_versions()
+
+# ---------------------------------------------------------------------------
+# Shared URL constants
+# ---------------------------------------------------------------------------
+
+_ES_BASE = "https://help.splunk.com/en/splunk-enterprise-security-8"
 
 _ES_SECTIONS = [
     "install",
@@ -102,51 +115,17 @@ _ES_SECTIONS = [
     "release-notes-and-resources",
 ]
 
-# Enterprise URL structure: /en/splunk-enterprise/{section}/{manual}/{version}/...
-# Seeds use {section}/{version} which may redirect — the landing page is the
-# primary reliable seed; section seeds are belt-and-braces extras.
-_ENTERPRISE_SECTIONS = [
-    "get-started",
-    "administer",
-    "search",
-    "spl-search-reference",
-    "manage-knowledge-objects",
-    "forward-and-process-data",
-    "get-data-in",
-    "create-dashboards-and-reports",
-    "alert-and-respond",
-    "apply-machine-learning",
-    "leverage-rest-apis",
-    "connect-relational-databases",
-]
+_ADMIN_BASE = (
+    "https://help.splunk.com/en/data-management/splunk-enterprise-admin-manual"
+)
 
-# Cloud shares the same section slugs as Enterprise for most manuals.
-# Cloud-exclusive sections (ACS API, edge processor, ingest processor) are
-# discovered via BFS from the landing page.
-_CLOUD_SECTIONS = [
-    "get-started",
-    "administer",
-    "search",
-    "spl-search-reference",
-    "manage-knowledge-objects",
-    "forward-and-process-data",
-    "create-dashboards-and-reports",
-    "alert-and-respond",
-    "apply-machine-learning",
-    "leverage-rest-apis",
-    "connect-relational-databases",
-]
-
-# Paths that robots.txt blocks on help.splunk.com — carried on each source so
-# the crawler stays source-agnostic (no hardcoded hostnames in crawler.py).
+# Paths that robots.txt blocks on help.splunk.com.
 _HELP_BLOCKED = [
     "https://help.splunk.com/api/",
     "https://help.splunk.com/bundle/",
 ]
 
 # Paths blocked by lantern.splunk.com robots.txt Disallow rules.
-# Query-string variants (?action=, ?title=Special:…) are already neutralised by
-# _normalise_url() which strips the query string before any URL is evaluated.
 _LANTERN_BLOCKED = [
     "https://lantern.splunk.com/Special:",
     "https://lantern.splunk.com/Template:",
@@ -156,69 +135,84 @@ _LANTERN_BLOCKED = [
     "https://lantern.splunk.com/hc",  # auth-gated Help Center section
 ]
 
+_SOAR_ONPREM_SEEDS = [
+    "https://help.splunk.com/en/splunk-soar/soar-on-premises",
+    "https://help.splunk.com/en/splunk-soar/soar-on-premises/install-and-upgrade-soar-on-premises",
+    "https://help.splunk.com/en/splunk-soar/soar-on-premises/administer-soar-on-premises",
+    "https://help.splunk.com/en/splunk-soar/soar-on-premises/use-splunk-soar-on-premises",
+    "https://help.splunk.com/en/splunk-soar/soar-on-premises/build-playbooks",
+    "https://help.splunk.com/en/splunk-soar/soar-on-premises/develop-apps",
+    "https://help.splunk.com/en/splunk-soar/soar-on-premises/python-playbook-api-reference",
+    "https://help.splunk.com/en/splunk-soar/soar-on-premises/python-playbook-tutorial",
+    "https://help.splunk.com/en/splunk-soar/soar-on-premises/release-notes",
+    "https://help.splunk.com/en/splunk-soar/soar-on-premises/rest-api-reference",
+]
+
+# ---------------------------------------------------------------------------
+# Source factories — called once at module load; version read from _V.
+# ---------------------------------------------------------------------------
+
+
+def _es_source(source_id: str, *, derive_from: str | None = None) -> CrawlSource:
+    """Factory for Enterprise Security sources (current, n1, n2).
+
+    Seed URLs include section-level entry points with the version segment so
+    older versions are reachable even when the live nav only links to current.
+    api-reference is seeded explicitly because it is not linked from the nav
+    for non-current versions.
+    """
+    v = _V[source_id]
+    return CrawlSource(
+        source_id=source_id,
+        display_name=f"Splunk Enterprise Security {v}",
+        version=v,
+        seed_urls=[
+            _ES_BASE,
+            *[f"{_ES_BASE}/{s}/{v}" for s in _ES_SECTIONS],
+            f"{_ES_BASE}/api-reference/{v}",
+        ],
+        url_prefix=f"{_ES_BASE}/",
+        blocked_path_prefixes=_HELP_BLOCKED,
+        derive_from=derive_from,
+    )
+
+
+def _admin_source(source_id: str, *, derive_from: str | None = None) -> CrawlSource:
+    """Factory for Configuration File Reference sources (current, n1).
+
+    The index page slug follows the pattern {version}.0-configuration-file-reference
+    (e.g. 10.2 → 10.2.0-configuration-file-reference). derive_from provides the
+    bulk of page seeds; the explicit seed covers the index page whose slug
+    contains the version and won't be derived correctly from the parent.
+    """
+    v = _V[source_id]
+    slug = f"{v}.0-configuration-file-reference"
+    return CrawlSource(
+        source_id=source_id,
+        display_name=f"Splunk Configuration File Reference {v}",
+        version=v,
+        seed_urls=[f"{_ADMIN_BASE}/{v}/configuration-file-reference/{slug}"],
+        url_prefix=f"{_ADMIN_BASE}/{v}/configuration-file-reference/",
+        blocked_path_prefixes=_HELP_BLOCKED,
+        derive_from=derive_from,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 sources
+# ---------------------------------------------------------------------------
+
 PHASE1_SOURCES: list[CrawlSource] = [
-    CrawlSource(
-        source_id="enterprise-security",
-        display_name="Splunk Enterprise Security 8.5",
-        version="8.5",
-        seed_urls=[
-            # Top-level landing page (discovers cross-section nav links)
-            "https://help.splunk.com/en/splunk-enterprise-security-8",
-            # Section-specific entry points ensure full coverage even if the
-            # landing page nav doesn't link to every section directly.
-            *[
-                f"https://help.splunk.com/en/splunk-enterprise-security-8/{s}/8.5"
-                for s in _ES_SECTIONS
-            ],
-        ],
-        url_prefix="https://help.splunk.com/en/splunk-enterprise-security-8/",
-        blocked_path_prefixes=_HELP_BLOCKED,
-    ),
-    CrawlSource(
-        source_id="admin-manual",
-        display_name="Splunk Configuration File Reference 10.2",
-        version="10.2",
-        seed_urls=[
-            # Index page for the config file reference section
-            (
-                "https://help.splunk.com/en/data-management/splunk-enterprise-admin-manual"
-                "/10.2/configuration-file-reference/10.2.0-configuration-file-reference"
-            ),
-        ],
-        url_prefix=(
-            "https://help.splunk.com/en/data-management/splunk-enterprise-admin-manual"
-            "/10.2/configuration-file-reference/"
-        ),
-        blocked_path_prefixes=_HELP_BLOCKED,
-    ),
-    CrawlSource(
-        source_id="admin-manual-n1",
-        display_name="Splunk Configuration File Reference 10.0",
-        version="10.0",
-        seed_urls=[
-            # help.splunk.com nav always links to 10.2; derive 10.0 URLs from 10.2 crawl.
-            # Direct seed as fallback in case landing-page slug differs from derived URL.
-            (
-                "https://help.splunk.com/en/data-management/splunk-enterprise-admin-manual"
-                "/10.0/configuration-file-reference/10.0.0-configuration-file-reference"
-            ),
-        ],
-        url_prefix=(
-            "https://help.splunk.com/en/data-management/splunk-enterprise-admin-manual"
-            "/10.0/configuration-file-reference/"
-        ),
-        blocked_path_prefixes=_HELP_BLOCKED,
-        derive_from="admin-manual",
-    ),
+    _es_source("enterprise-security"),
+    _admin_source("admin-manual"),
     CrawlSource(
         source_id="splunk-enterprise",
-        display_name="Splunk Enterprise 10.2",
-        version="10.2",
+        display_name=f"Splunk Enterprise {_V['splunk-enterprise']}",
+        version=_V["splunk-enterprise"],
         seed_urls=[
             # Landing page only — BFS discovers all section pages from here.
-            # Section-level seeds like /{section}/10.2 return HTTP 404 on
-            # help.splunk.com and were removed to avoid accumulating dead URLs
-            # in crawl_state that get re-attempted on every run.
+            # Section-level seeds return HTTP 404 on help.splunk.com and
+            # accumulate dead entries in crawl_state if added explicitly.
             "https://help.splunk.com/en/splunk-enterprise/",
         ],
         url_prefix="https://help.splunk.com/en/splunk-enterprise/",
@@ -226,85 +220,30 @@ PHASE1_SOURCES: list[CrawlSource] = [
     ),
     CrawlSource(
         source_id="splunk-cloud",
-        display_name="Splunk Cloud Platform 10.3.2512",
-        version="10.3.2512",
+        display_name=f"Splunk Cloud Platform {_V['splunk-cloud']}",
+        version=_V["splunk-cloud"],
         seed_urls=[
-            # Landing page only — same reasoning as splunk-enterprise above.
             "https://help.splunk.com/en/splunk-cloud-platform/",
         ],
         url_prefix="https://help.splunk.com/en/splunk-cloud-platform/",
         blocked_path_prefixes=_HELP_BLOCKED,
     ),
-    CrawlSource(
-        source_id="enterprise-security-n1",
-        display_name="Splunk Enterprise Security 8.4",
-        version="8.4",
-        seed_urls=[
-            "https://help.splunk.com/en/splunk-enterprise-security-8",
-            *[
-                f"https://help.splunk.com/en/splunk-enterprise-security-8/{s}/8.4"
-                for s in _ES_SECTIONS
-            ],
-            # api-reference exists for 8.4 but is only linked from 8.5 nav;
-            # common-information-model and pci-compliance are 8.5-only (404 on 8.4).
-            "https://help.splunk.com/en/splunk-enterprise-security-8/api-reference/8.4",
-        ],
-        url_prefix="https://help.splunk.com/en/splunk-enterprise-security-8/",
-        blocked_path_prefixes=_HELP_BLOCKED,
-        # help.splunk.com nav always links to 8.5; derive 8.4 URLs from 8.5 crawl.
-        derive_from="enterprise-security",
-    ),
-    CrawlSource(
-        source_id="enterprise-security-n2",
-        display_name="Splunk Enterprise Security 8.3",
-        version="8.3",
-        seed_urls=[
-            "https://help.splunk.com/en/splunk-enterprise-security-8",
-            *[
-                f"https://help.splunk.com/en/splunk-enterprise-security-8/{s}/8.3"
-                for s in _ES_SECTIONS
-            ],
-        ],
-        url_prefix="https://help.splunk.com/en/splunk-enterprise-security-8/",
-        blocked_path_prefixes=_HELP_BLOCKED,
-        # help.splunk.com nav always links to 8.5; derive 8.3 URLs from 8.5 crawl.
-        derive_from="enterprise-security",
-    ),
+    _es_source("enterprise-security-n1", derive_from="enterprise-security"),
+    _admin_source("admin-manual-n1", derive_from="admin-manual"),
+    _es_source("enterprise-security-n2", derive_from="enterprise-security"),
     CrawlSource(
         source_id="soar-on-premises",
-        display_name="Splunk SOAR On-Premises 8.5.0",
-        version="8.5.0",
-        seed_urls=[
-            "https://help.splunk.com/en/splunk-soar/soar-on-premises",
-            "https://help.splunk.com/en/splunk-soar/soar-on-premises/install-and-upgrade-soar-on-premises",
-            "https://help.splunk.com/en/splunk-soar/soar-on-premises/administer-soar-on-premises",
-            "https://help.splunk.com/en/splunk-soar/soar-on-premises/use-splunk-soar-on-premises",
-            "https://help.splunk.com/en/splunk-soar/soar-on-premises/build-playbooks",
-            "https://help.splunk.com/en/splunk-soar/soar-on-premises/develop-apps",
-            "https://help.splunk.com/en/splunk-soar/soar-on-premises/python-playbook-api-reference",
-            "https://help.splunk.com/en/splunk-soar/soar-on-premises/python-playbook-tutorial",
-            "https://help.splunk.com/en/splunk-soar/soar-on-premises/release-notes",
-            "https://help.splunk.com/en/splunk-soar/soar-on-premises/rest-api-reference",
-        ],
+        display_name=f"Splunk SOAR On-Premises {_V['soar-on-premises']}",
+        version=_V["soar-on-premises"],
+        seed_urls=_SOAR_ONPREM_SEEDS,
         url_prefix="https://help.splunk.com/en/splunk-soar/soar-on-premises/",
         blocked_path_prefixes=_HELP_BLOCKED,
     ),
     CrawlSource(
         source_id="soar-on-premises-n1",
-        display_name="Splunk SOAR On-Premises 8.4.0",
-        version="8.4.0",
-        seed_urls=[
-            "https://help.splunk.com/en/splunk-soar/soar-on-premises",
-            "https://help.splunk.com/en/splunk-soar/soar-on-premises/install-and-upgrade-soar-on-premises",
-            "https://help.splunk.com/en/splunk-soar/soar-on-premises/administer-soar-on-premises",
-            "https://help.splunk.com/en/splunk-soar/soar-on-premises/use-splunk-soar-on-premises",
-            "https://help.splunk.com/en/splunk-soar/soar-on-premises/build-playbooks",
-            "https://help.splunk.com/en/splunk-soar/soar-on-premises/develop-apps",
-            "https://help.splunk.com/en/splunk-soar/soar-on-premises/python-playbook-api-reference",
-            "https://help.splunk.com/en/splunk-soar/soar-on-premises/python-playbook-tutorial",
-            "https://help.splunk.com/en/splunk-soar/soar-on-premises/release-notes",
-            "https://help.splunk.com/en/splunk-soar/soar-on-premises/rest-api-reference",
-        ],
+        display_name=f"Splunk SOAR On-Premises {_V['soar-on-premises-n1']}",
+        version=_V["soar-on-premises-n1"],
+        seed_urls=_SOAR_ONPREM_SEEDS,
         url_prefix="https://help.splunk.com/en/splunk-soar/soar-on-premises/",
         blocked_path_prefixes=_HELP_BLOCKED,
         derive_from="soar-on-premises",
@@ -312,7 +251,7 @@ PHASE1_SOURCES: list[CrawlSource] = [
     CrawlSource(
         source_id="soar-cloud",
         display_name="Splunk SOAR Cloud",
-        version="current",
+        version=_V["soar-cloud"],
         seed_urls=[
             "https://help.splunk.com/en/splunk-soar/soar-cloud",
             "https://help.splunk.com/en/splunk-soar/soar-cloud/administer-soar-cloud",
@@ -331,11 +270,9 @@ PHASE1_SOURCES: list[CrawlSource] = [
     CrawlSource(
         source_id="lantern",
         display_name="Splunk Lantern",
-        version="current",
+        version=_V["lantern"],
         seed_urls=[
-            # Root — discovers all top-level section links
             "https://lantern.splunk.com/",
-            # Explicit section seeds as belt-and-braces
             "https://lantern.splunk.com/Security_Use_Cases",
             "https://lantern.splunk.com/Observability_Use_Cases",
             "https://lantern.splunk.com/Splunk_and_Cisco_Use_Cases",
@@ -362,11 +299,7 @@ SOURCES_BY_ID: dict[str, CrawlSource] = {s.source_id: s for s in PHASE1_SOURCES}
 
 
 def get_source_version_pairs() -> list[tuple[str, str]]:
-    """Return (derived_source_id, parent_source_id) pairs for the version merge pass.
-
-    Used by merge_dbs to collapse identical cross-version content into single
-    canonical rows tagged with multiple versions via version_tags.
-    """
+    """Return (derived_source_id, parent_source_id) pairs for the version merge pass."""
     return [
         (s.source_id, s.derive_from)
         for s in PHASE1_SOURCES

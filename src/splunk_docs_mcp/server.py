@@ -37,7 +37,7 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 from sentence_transformers import SentenceTransformer
 
-from .config import DB_PATH, SOURCES_BY_ID
+from .config import DB_PATH, PHASE1_SOURCES, SOURCES_BY_ID
 from .db import (
     get_connection,
     init_db,
@@ -168,8 +168,26 @@ def _search_docs_hybrid_cached(
 
 
 # ---------------------------------------------------------------------------
-# MCP server
+# MCP server — source list and valid versions built from config at startup.
 # ---------------------------------------------------------------------------
+
+_LANTERN_NOTE = " (use-case guidance, best practices)"
+_source_list = "\n".join(
+    f"  {s.source_id:<26} — {s.display_name}"
+    + (_LANTERN_NOTE if s.source_id == "lantern" else "")
+    for s in PHASE1_SOURCES
+)
+
+# Unique version strings in PHASE1_SOURCES order (current versions first).
+_seen: set[str] = set()
+_valid_versions: list[str] = []
+for _s in PHASE1_SOURCES:
+    if _s.version not in _seen:
+        _seen.add(_s.version)
+        _valid_versions.append(f"'{_s.version}'")
+_valid_versions_str = ", ".join(_valid_versions)
+
+_source_options = ", ".join(f"'{s.source_id}'" for s in PHASE1_SOURCES)
 
 mcp = FastMCP(
     name="splunk-docs",
@@ -181,23 +199,13 @@ mcp = FastMCP(
         "SOAR, Observability, or any other Splunk product or feature, use the tools below "
         "to retrieve the current documentation first, then answer from that.\n\n"
 
-        "Available sources (use source= to target one; combine with version= to pinpoint):\n"
-        "  enterprise-security      — Splunk Enterprise Security (current)\n"
-        "  enterprise-security-n1   — Splunk Enterprise Security (n-1)\n"
-        "  enterprise-security-n2   — Splunk Enterprise Security (n-2)\n"
-        "  admin-manual             — Splunk Configuration File Reference (current)\n"
-        "  admin-manual-n1          — Splunk Configuration File Reference (n-1)\n"
-        "  splunk-enterprise        — Splunk Enterprise (current)\n"
-        "  splunk-cloud             — Splunk Cloud Platform (current)\n"
-        "  soar-on-premises         — Splunk SOAR On-Premises (current)\n"
-        "  soar-on-premises-n1      — Splunk SOAR On-Premises (n-1)\n"
-        "  soar-cloud               — Splunk SOAR Cloud (current)\n"
-        "  lantern                  — Splunk Lantern (use-case guidance, best practices)\n\n"
+        f"Available sources (use source= to target one; combine with version= to pinpoint):\n"
+        f"{_source_list}\n\n"
         "Version filter — REQUIRED when the user names a specific version:\n"
-        "  If the user mentions '8.4', '8.3', or any specific release, you MUST include\n"
-        "  version= in every search call. Without it, searches return mostly current-version\n"
-        "  results and you will incorrectly report that older versions are not indexed.\n"
-        "  Valid values: '8.3', '8.4', '8.5', '8.5.0', '8.4.0', '10.0', '10.2', '10.3.2512', 'current'.\n"
+        "  If the user mentions a specific release, you MUST include version= in every search\n"
+        "  call. Without it, searches return mostly current-version results and you will\n"
+        "  incorrectly report that older versions are not indexed.\n"
+        f"  Valid values: {_valid_versions_str}.\n"
         "  Example: search_docs('correlation search', source='enterprise-security', version='8.4')\n"
         "  Never tell the user a version is unavailable without first searching with version= set.\n\n"
 
@@ -278,9 +286,7 @@ def search_docs(
         str | None,
         Field(description=(
             "Limit search to a specific source. "
-            "Options: 'enterprise-security', 'enterprise-security-n1', 'enterprise-security-n2', "
-            "'admin-manual', 'admin-manual-n1', 'splunk-enterprise', 'splunk-cloud', "
-            "'soar-on-premises', 'soar-on-premises-n1', 'soar-cloud', 'lantern'. "
+            f"Options: {_source_options}. "
             "Omit to search across all indexed sources."
         )),
     ] = None,
@@ -343,9 +349,7 @@ def search_docs_semantic(
         str | None,
         Field(description=(
             "Limit search to a specific source. "
-            "Options: 'enterprise-security', 'enterprise-security-n1', 'enterprise-security-n2', "
-            "'admin-manual', 'admin-manual-n1', 'splunk-enterprise', 'splunk-cloud', "
-            "'soar-on-premises', 'soar-on-premises-n1', 'soar-cloud', 'lantern'. "
+            f"Options: {_source_options}. "
             "Omit to search across all indexed sources."
         )),
     ] = None,
@@ -418,9 +422,7 @@ def search_docs_hybrid(
         str | None,
         Field(description=(
             "Limit search to a specific source. "
-            "Options: 'enterprise-security', 'enterprise-security-n1', 'enterprise-security-n2', "
-            "'admin-manual', 'admin-manual-n1', 'splunk-enterprise', 'splunk-cloud', "
-            "'soar-on-premises', 'soar-on-premises-n1', 'soar-cloud', 'lantern'. "
+            f"Options: {_source_options}. "
             "Omit to search across all indexed sources."
         )),
     ] = None,
