@@ -3,12 +3,7 @@ name: Crawl and release
 on:
   schedule:
     - cron: "0 2 * * 0"   # every Sunday at 02:00 UTC
-  workflow_dispatch:
-    inputs:
-      full_recrawl:
-        description: "Force full re-crawl (bypasses incremental hash-skip; use after crawler bug fixes)"
-        type: boolean
-        default: false
+  workflow_dispatch:        # manual trigger
 
 permissions:
   contents: write
@@ -53,11 +48,7 @@ jobs:
             splunk-db-${{ matrix.source }}-
 
       - name: Crawl ${{ matrix.source }}
-        run: |
-          uv run splunk-crawl \
-            --sources ${{ matrix.source }} \
-            --db data/${{ matrix.source }}.db \
-            ${{ inputs.full_recrawl == 'true' && '--full' || '' }}
+        run: uv run splunk-crawl --sources ${{ matrix.source }} --db data/${{ matrix.source }}.db --full
 
       - name: Save per-source DB cache
         if: always()
@@ -128,7 +119,7 @@ jobs:
           uv run splunk-crawl \
             --sources ${{ matrix.source }} \
             --db data/${{ matrix.source }}.db \
-            ${{ inputs.full_recrawl == 'true' && '--full' || '' }} \
+            --full \
             --derive-db data/${{ matrix.derive_db }}.db
 
       - name: Save per-source DB cache
