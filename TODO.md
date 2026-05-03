@@ -40,6 +40,50 @@ Four improvements to do in order. Each is independent and can be committed separ
 
 ---
 
+## 🟢 Content expansion (Phase 5)
+
+### n-1 for admin-manual (config file reference)
+- Straightforward: `/10.2/` is in the URL prefix, so URL derivation works the same as ES
+- Add a new `CrawlSource` in `config.py` with `derive_from="admin-manual"` pointing at the previous version
+- Need to confirm what the previous version is (likely 9.4 or 9.3 — check help.splunk.com)
+- Low effort, high value: conf file stanzas change subtly between versions and it matters
+
+### Splunk REST API docs
+- Splunk Enterprise and Cloud both have a REST API reference at a separate URL tree on help.splunk.com
+- Identify the seed URL and `url_prefix` for the REST API reference (e.g. `help.splunk.com/en/splunk-enterprise/rest-api-reference/`)
+- Add as a new `CrawlSource` — no other code changes needed
+- Large and valuable: covers every endpoint, request/response params, auth methods
+- Check robots.txt for `Crawl-delay` before adding
+
+### Splunk SDK docs
+- Splunk provides Python, JavaScript, and Java SDKs — docs live at `dev.splunk.com` or similar
+- Investigate URL structure and robots.txt compliance before adding
+- Python SDK is highest priority (most common for automation and custom apps)
+- May need a separate `CrawlSource` with different `url_prefix` and `blocked_path_prefixes`
+- Worth checking if `dev.splunk.com` allows crawling — may need to fall back to GitHub-hosted docs
+
+### n-1 for Enterprise and Cloud (harder — seeding problem)
+- Enterprise/Cloud URLs don't embed a version path segment, so URL derivation doesn't work
+- Needs a different approach: find version-specific sitemap or seed URLs manually for 10.1/10.2
+- Investigate whether `help.splunk.com/sitemap.xml` or version-specific sitemaps exist
+- Not blocked — just needs investigation; could unlock ~5,000 unique pages of n-1 content
+- Skip until the admin-manual, REST API, and SDK sources are done
+
+---
+
+## 🟡 Operational improvements
+
+### Version rotation command (`splunk-rotate-versions`)
+- Currently when a new product version releases, config.py must be updated manually
+- There is no mechanism to drop n-2 content when current promotes to n-1
+- Add a CLI command (or update to `config.py` conventions) that:
+  1. Takes a source ID and new version as args
+  2. Updates `config.py` to rotate versions (new → current, current → n-1, n-1 → dropped or kept as n-2)
+  3. Optionally purges the dropped version's rows from the DB
+- Related: decide the policy on ES 8.3 — it's n-2 and was added during development. Keep it (low cost due to version merge) or drop it for cleanliness?
+
+---
+
 ## ⚫ Priority — Future / optional
 
 - [ ] **Add ITSI, Observability** — most-requested missing products
