@@ -4,6 +4,85 @@ _Last updated: 2026-05-03_
 
 ---
 
+## 🔴 Next session — Tier 2: automatic version discovery
+
+### Goal
+Eliminate manual edits to `versions.json`. The GHA `crawl-and-release` workflow detects the current and previous versions of each Splunk product automatically, rewrites `versions.json`, commits the change, then crawls. You maintain **n and n-1 at minimum; n-2 is kept when cheap** (it is cheap — version merge deduplicates shared content so n-2 storage cost is only unique pages, typically ~10-20% of n-1 size).
+
+### Research findings (2026-05-03)
+- **Version selectors are server-rendered static HTML** on help.splunk.com — no JavaScript required. BeautifulSoup (already a dependency via markdownify/BS4) can parse them directly.
+- **Admin manual** (`/en/data-management/splunk-enterprise-admin-manual`): flat horizontal link list in static HTML — versions "10.2 10.0 9.4 9.3 9.2 9.1 9.0" are direct anchor elements. Straightforward to parse.
+- **Enterprise Security** (`/en/splunk-enterprise-security-8`): versions appear as navigation links on the landing page (not a dropdown). The agent found language selectors on the root; version links may be on a section subpage like `/en/splunk-enterprise-security-8/administer/8.5`. **Needs a second look** at a section-level page to confirm where the version selector lives.
+- **SOAR On-Premises** (`/en/splunk-soar/soar-on-premises`): no version selector on the hub page — versioning is on subpages. Need to identify which subpage exposes the version list.
+- **Splunk Enterprise / Cloud / Lantern**: no version in URL prefix; version appears embedded in page content. Less critical to auto-detect since these are slower-moving.
+
+### Implementation plan
+
+#### Step 1: `splunk-discover-versions` CLI command (new entry point in `pyproject.toml`)
+- For each source in `PHASE1_SOURCES` where version discovery is possible, fetch the appropriate discovery URL and parse the version list
+- Output: updated `versions.json` written to project root
+- If discovery fails for a source, keep the existing version in `versions.json` and log a warning (never fail silently)
+- Dry-run mode (`--dry-run`): print what would change without writing
+
+Per-product discovery URLs and parsing strategy:
+| Source | Discovery URL | Parse strategy |
+|--------|--------------|----------------|
+| `enterprise-security` | `/en/splunk-enterprise-security-8/administer/8.5` (or similar section page) | Find version selector links in nav; pick highest semver as current |
+| `admin-manual` | `/en/data-management/splunk-enterprise-admin-manual` | Parse flat link list; first = current |
+| `soar-on-premises` | TBD — identify which subpage has version links | Same as above |
+| `splunk-enterprise` | `/en/splunk-enterprise/` | May need to look at page content for version mentions |
+| `splunk-cloud` | `/en/splunk-cloud-platform/` | Same |
+
+For n1 and n2: once current version is known, n1 = second in the version list, n2 = third (if present).
+
+#### Step 2: Add to `CrawlSource` (optional but clean)
+- Add `version_discovery_url: str | None = None` field to `CrawlSource`
+- `splunk-discover-versions` iterates sources that have this field set; others fall back to current `versions.json` value
+- This keeps discovery config co-located with source definitions
+
+#### Step 3: GHA integration
+Add a step at the start of the `crawl` job (before any crawling) — OR as a separate pre-crawl job:
+```yaml
+- name: Discover current versions
+  run: uv run splunk-discover-versions
+  
+- name: Commit updated versions.json
+  run: |
+    git config user.name "github-actions[bot]"
+    git config user.email "github-actions[bot]@users.noreply.github.com"
+    git add versions.json
+    git diff --staged --quiet || git commit -m "chore: update versions.json [skip ci]"
+    git push
+```
+`[skip ci]` prevents the commit triggering another workflow run.
+
+#### Step 4: n/n-1/n-2 policy
+- `config.py` factories (`_es_source`, `_admin_source`) already support current, n1, n2 via `_V[source_id]`
+- Policy: always maintain current + n1; keep n2 as long as n2 exists in the version list (it's cheap due to version merge dedup)
+- When n2 ages out (e.g. Splunk drops 8.3 from their version selector), `splunk-discover-versions` sets n2 to `null` or removes it from `versions.json`; `config.py` skips sources whose version is null
+
+#### Step 5: `versions.json` schema extension for nullability
+```json
+{
+  "enterprise-security": "8.6",
+  "enterprise-security-n1": "8.5",
+  "enterprise-security-n2": "8.4",
+  "admin-manual": "10.3",
+  "admin-manual-n1": "10.2",
+  "admin-manual-n2": null
+}
+```
+Sources with `null` version are skipped by `config.py` (no CrawlSource created) and by the GHA matrix.
+
+### Order of implementation
+1. Manually fetch the ES section page and SOAR subpage to confirm where the version selector HTML lives (5 min research)
+2. Write `splunk-discover-versions` with `--dry-run`; test against each product
+3. Add `version_discovery_url` to CrawlSource and wire into factories
+4. Handle `null` versions in config.py and GHA
+5. Add GHA step + push
+
+---
+
 ## 🟢 Content expansion (Phase 5)
 
 ### Splunk REST API docs
