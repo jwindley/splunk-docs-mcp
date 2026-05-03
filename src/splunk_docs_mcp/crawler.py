@@ -409,7 +409,8 @@ async def _fetch_sitemap_urls(
     """
     from xml.etree import ElementTree as ET
 
-    assert source.sitemap_url
+    if not source.sitemap_url:
+        return []
     try:
         async with httpx.AsyncClient(
             headers=CRAWL_HEADERS,

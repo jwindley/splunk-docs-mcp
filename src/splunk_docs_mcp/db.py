@@ -20,7 +20,7 @@ Each document row stores a 384-dimensional float32 embedding (all-MiniLM-L6-v2)
 as a BLOB in the `embedding` column.  Embeddings are generated at crawl time by
 the post-crawl pass in cli.py.  The `search_docs_semantic` function loads all
 embeddings into a NumPy matrix and computes cosine similarity in-process; this
-is fast enough for the current corpus size (~1 000 documents).
+is fast enough for the current corpus size (~9 000+ pages, ~20 000+ rows with chunks).
 
 Future extensibility
 --------------------
@@ -34,6 +34,8 @@ import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+
+from splunk_docs_mcp.config import PHASE1_SOURCES
 
 # Heading and paragraph boundary patterns used by _split_content_smart
 _HEADING_RE = re.compile(r'(?m)^(?=#{2,3} )')
@@ -370,18 +372,13 @@ def merge_source_db(conn: sqlite3.Connection, source_db_path: Path) -> int:
 
 
 # Source priority for dedup: lower index = higher priority (wins the dedup).
-# When the same content_hash exists in multiple sources, the row from the
-# highest-priority source is kept; all others are marked is_duplicate=1.
+# Derived from PHASE1_SOURCES so it stays in sync automatically when sources
+# are added or removed. Parent sources (current versions) come before derived
+# sources (n-1 versions) so current docs always win over older ones.
 _DEDUP_PRIORITY: list[str] = [
-    "enterprise-security",
-    "enterprise-security-8-4",
-    "enterprise-security-8-3",
-    "admin-manual",
-    "splunk-enterprise",
-    "splunk-enterprise-10-1",
-    "splunk-cloud",
-    "splunk-cloud-10-2",
-    "lantern",
+    s.source_id for s in PHASE1_SOURCES if s.derive_from is None
+] + [
+    s.source_id for s in PHASE1_SOURCES if s.derive_from is not None
 ]
 
 
@@ -714,6 +711,9 @@ def search_docs(
     if version:
         # Match rows that are either the canonical version or have been tagged
         # (version_tags) as also applying to this version via the merge pass.
+        # is_duplicate is intentionally NOT filtered here: n-1 rows collapsed by
+        # run_version_merge_pass are deleted (not flagged), but any remaining
+        # version-specific rows must be visible regardless of their dedup status.
         filters += (
             " AND (d.version = ? OR EXISTS ("
             "SELECT 1 FROM json_each(d.version_tags) jt WHERE jt.value = ?))"
@@ -852,6 +852,7 @@ def browse_section(
         WHERE section = ?
           AND source = ?
           AND chunk_of IS NULL
+          AND is_duplicate = 0
           {sub_filter}
         ORDER BY subsection, title
         """,
@@ -1050,7 +1051,7 @@ def search_docs_semantic(
 
     All embeddings are loaded into a NumPy matrix and the dot product with the
     (unit-norm) query vector is computed in-process.  This is O(n) in corpus
-    size but fast enough for ~1 000 documents (sub-millisecond arithmetic).
+    size but fast enough for ~9 000+ pages / ~20 000+ rows with chunks.
 
     Returns results sorted by descending similarity score (1.0 = identical).
     Returns an empty list if no embeddings have been generated yet.
