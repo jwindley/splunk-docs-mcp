@@ -4,6 +4,42 @@ _Last updated: 2026-05-03_
 
 ---
 
+## 🔵 Next up — Performance & UX improvements (Phase 4)
+
+Four improvements to do in order. Each is independent and can be committed separately.
+
+### 1. LRU result cache on search tools (easiest, do first)
+- Add `@functools.lru_cache` or a manual `dict` cache in `server.py` keyed on `(query, source, version, limit)`
+- Apply to both `search_docs` and `search_docs_semantic`
+- Cache the DB connection is read-only so staleness is not a concern within a session
+- Use `functools.lru_cache` with `maxsize=128`
+
+### 2. Hybrid search tool — `search_docs_hybrid`
+- New MCP tool in `server.py` that runs BM25 + semantic search in parallel (using `asyncio` or `concurrent.futures`) and fuses results via Reciprocal Rank Fusion (RRF)
+- RRF score = `sum(1 / (k + rank_i))` where k=60 is the standard constant
+- Deduplicate by canonical URL; return top-N fused results
+- Update tool decision tree in `server.py` `instructions=` to recommend `search_docs_hybrid` as the default first call
+- BM25 search is synchronous (SQLite); semantic is in-process numpy — run BM25 in a thread executor so both run concurrently
+
+### 3. Lazy / background model loading
+- Currently `_embed_model = SentenceTransformer(...)` runs at module import time in `server.py`, blocking startup for 30-90s on first download
+- Move to a background thread: start loading in `threading.Thread` immediately on import, but don't block until first actual call to `search_docs_semantic`
+- Use a `threading.Event` to signal readiness; `search_docs_semantic` waits on the event if model not yet ready
+- Also pre-load the embedding matrix in the same background thread (currently also blocks first semantic search call)
+
+### 4. Replace numpy matrix scan with `sqlite-vec`
+- `sqlite-vec` is a SQLite loadable extension for ANN vector search; install via `pip install sqlite-vec`
+- Schema: add a `vec_documents` virtual table using `sqlite_vec` with 384-dim float32 vectors
+- At crawl time: after embedding pass, populate `vec_documents` with `(rowid, embedding)` pairs
+- At search time: `SELECT rowid, distance FROM vec_documents WHERE embedding MATCH ? ORDER BY distance LIMIT ?` — replaces the full numpy matrix scan
+- Eliminates the 23-38MB RAM matrix; search is O(log n) not O(n)
+- Migration: `get_all_embeddings()` and `_embed_matrix` global in `server.py` can be removed
+- Need to re-run embed pass after adding the virtual table (or populate from existing `documents.embedding` BLOBs in a migration step)
+- Add `sqlite-vec` to `pyproject.toml` dependencies
+- **Do this last** — it's the most impactful but also the biggest schema/architecture change
+
+---
+
 ## ⚫ Priority — Future / optional
 
 - [ ] **Add ITSI, Observability** — most-requested missing products
