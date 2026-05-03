@@ -134,21 +134,6 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_documents_source_section
             ON documents(source, section);
 
-        -- Future: SPL examples library (Phase 2+) --------------------------------
-        -- CREATE TABLE IF NOT EXISTS spl_examples (
-        --     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-        --     title       TEXT NOT NULL,
-        --     spl_query   TEXT NOT NULL,
-        --     explanation TEXT,
-        --     tags        TEXT,          -- JSON array of strings
-        --     use_case    TEXT,
-        --     source_file TEXT
-        -- );
-        -- CREATE VIRTUAL TABLE IF NOT EXISTS spl_examples_fts USING fts5(
-        --     title, spl_query, explanation,
-        --     content=spl_examples, content_rowid=id,
-        --     tokenize='porter unicode61'
-        -- );
     """)
     conn.commit()
 

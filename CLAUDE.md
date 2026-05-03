@@ -45,7 +45,6 @@ No blocking known issues.
 
 ## Future Scope (do NOT build yet)
 
-- **SPL examples library** — curated JSON → separate `spl_examples` DB table + `search_spl` MCP tool (schema stub already in `db.py`)
 - **Add ITSI, Observability** — most-requested missing products (SOAR is now indexed)
 
 ---

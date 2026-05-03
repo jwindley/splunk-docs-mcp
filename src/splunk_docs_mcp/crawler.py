@@ -407,7 +407,7 @@ async def _fetch_sitemap_urls(
     lastmod is the raw <lastmod> string from the sitemap (typically YYYY-MM-DD
     or a full ISO-8601 datetime).  The caller compares only the date portion.
     """
-    from xml.etree import ElementTree as ET
+    from defusedxml import ElementTree as ET
 
     if not source.sitemap_url:
         return []

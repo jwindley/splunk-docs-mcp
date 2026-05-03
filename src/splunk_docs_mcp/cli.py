@@ -166,6 +166,9 @@ async def _run(args: argparse.Namespace) -> int:
                     parent_urls = get_crawled_urls_for_source(derive_conn, source.derive_from)
                     if args.derive_db:
                         derive_conn.close()
+                    # Assumes version appears as an isolated path segment (e.g. /8.5/ → /8.4/).
+                    # _is_target_url() provides a second layer of defence by rejecting
+                    # any derived URL whose version segment doesn't match source.version.
                     extra_seeds = [
                         url.replace(f"/{parent.version}/", f"/{source.version}/")
                         for url in parent_urls

@@ -1,12 +1,11 @@
 # TODO — splunk-docs-mcp
 
-_Last updated: 2026-04-26_
+_Last updated: 2026-05-03_
 
 ---
 
 ## ⚫ Priority — Future / optional
 
-- [ ] **SPL examples library** — `spl_examples` table + `search_spl` MCP tool (schema stub already in `db.py`)
 - [ ] **Add ITSI, Observability** — most-requested missing products
 
 ---
