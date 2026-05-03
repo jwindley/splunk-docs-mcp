@@ -727,8 +727,7 @@ def search_docs(
     # Fetch extra rows to allow deduplication across chunks of the same parent
     params.append(limit * 4)
 
-    rows = conn.execute(
-        f"""
+    _sql = f"""
         SELECT
             d.url,
             d.title,
@@ -747,9 +746,16 @@ def search_docs(
           {filters}
         ORDER BY score
         LIMIT ?
-        """,
-        params,
-    ).fetchall()
+        """
+    try:
+        rows = conn.execute(_sql, params).fetchall()
+    except sqlite3.OperationalError:
+        # FTS5 rejects queries with dots or other special characters (e.g.
+        # "inputs.conf"). The unicode61 tokenizer splits on those characters
+        # anyway, so replacing them with spaces gives equivalent results.
+        sanitized = re.sub(r"[^\w\s-]", " ", params[0])
+        params[0] = sanitized
+        rows = conn.execute(_sql, params).fetchall()
 
     # Deduplicate: multiple chunks of the same parent may match; keep the
     # best-scoring chunk per canonical (parent) URL.  BM25 score is negative
