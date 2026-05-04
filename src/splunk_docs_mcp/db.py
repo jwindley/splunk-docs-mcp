@@ -754,6 +754,7 @@ def search_docs(
             d.title,
             d.source,
             d.version,
+            d.version_tags,
             d.section,
             d.subsection,
             d.crawled_at,
@@ -784,6 +785,10 @@ def search_docs(
             d["chunk_url"] = d["url"]
         d["url"] = canonical
         d["crawled"] = (d.pop("crawled_at") or "")[:10]
+        # Parse version_tags JSON so callers see a list, not a raw string.
+        # Important when version= is used: result row may show version='8.5'
+        # but version_tags=['8.5','8.4'], meaning it was found via tag match.
+        d["version_tags"] = json.loads(d.get("version_tags") or "[]")
         if canonical not in seen:
             seen[canonical] = d
 
@@ -824,8 +829,9 @@ def get_page(conn: sqlite3.Connection, url: str) -> dict | None:
             page["next_chunk_url"] = f"{parent_url}#chunk-{idx + 1}"
         page["chunk_note"] = (
             f"Chunk {idx + 1} of {total} for this page. "
-            "Use next_chunk_url / prev_chunk_url to navigate adjacent sections, "
-            "or call get_page(parent_url) to get the full (possibly truncated) page."
+            "Follow at most 1 next_chunk_url hop — if the answer is not here or "
+            "in the next chunk, call search_docs() with more specific keywords instead. "
+            "Do NOT walk all chunks sequentially."
         )
         page.pop("has_chunks", None)
         page.pop("chunk_of", None)

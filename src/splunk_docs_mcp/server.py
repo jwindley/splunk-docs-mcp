@@ -206,8 +206,12 @@ mcp = FastMCP(
         "  call. Without it, searches return mostly current-version results and you will\n"
         "  incorrectly report that older versions are not indexed.\n"
         f"  Valid values: {_valid_versions_str}.\n"
-        "  Example: search_docs('correlation search', source='enterprise-security', version='8.4')\n"
+        "  Example: search_docs('event-based detection', source='enterprise-security', version='8.4')\n"
         "  Never tell the user a version is unavailable without first searching with version= set.\n\n"
+        "  READING version_tags IN RESULTS: Results include a version_tags list.\n"
+        "  A result with version='8.5' and version_tags=['8.5','8.4'] is fully authoritative\n"
+        "  for both versions — the content is identical between them. Do NOT say a page is\n"
+        "  '8.5-only' or 'not indexed for 8.4' when version_tags contains the requested version.\n\n"
 
         "DECISION TREE — apply before every question:\n\n"
 
@@ -500,11 +504,13 @@ def get_page(
 
     Pass a chunk_url from search_docs() results to get just that 1,500-char
     section. The response includes chunk_index, total_chunks, prev_chunk_url,
-    and next_chunk_url so you can walk adjacent sections without re-searching.
+    and next_chunk_url to navigate adjacent sections.
 
-    For large conf files (server.conf, transforms.conf etc.): search_docs()
-    first to find the chunk containing the stanza you need, then call
-    get_page(chunk_url) to read it and navigate with next_chunk_url.
+    CHUNK NAVIGATION LIMIT: follow at most 1 next_chunk_url hop per question.
+    If the answer is not in the initial chunk or its immediate neighbour, do NOT
+    continue walking — call search_docs() again with more specific keywords to
+    jump directly to the right section. Walking all chunks of a large conf file
+    (server.conf has ~220 chunks) takes minutes and wastes the context window.
     """
     t0 = time.perf_counter()
     try:
