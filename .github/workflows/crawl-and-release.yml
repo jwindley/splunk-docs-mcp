@@ -224,18 +224,40 @@ jobs:
 
       - name: Verify primary sources succeeded
         run: |
-          MISSING=""
-          for src in enterprise-security admin-manual splunk-enterprise splunk-cloud \
-                     soar-on-premises soar-cloud lantern; do
+          # Check file existence and minimum page counts.
+          # Page count guard prevents publishing a release that contains a near-empty DB
+          # from a cache-miss + crawl failure (e.g. all seeds returning 403).
+          check_source() {
+            local src=$1 min=$2
             if [ ! -f "data/${src}.db" ]; then
-              MISSING="$MISSING $src"
+              echo "  FAIL ${src}: DB file missing"
+              return 1
             fi
-          done
-          if [ -n "$MISSING" ]; then
-            echo "ERROR: primary source DBs missing:$MISSING — aborting release"
+            local count
+            count=$(sqlite3 "data/${src}.db" \
+              "SELECT COUNT(*) FROM documents WHERE source='${src}' AND chunk_of IS NULL;" \
+              2>/dev/null || echo 0)
+            if [ "$count" -lt "$min" ]; then
+              echo "  FAIL ${src}: only ${count} pages (minimum ${min})"
+              return 1
+            fi
+            echo "  OK   ${src}: ${count} pages"
+            return 0
+          }
+
+          FAILED=0
+          check_source enterprise-security  400  || FAILED=1
+          check_source admin-manual         100  || FAILED=1
+          check_source splunk-enterprise   1500  || FAILED=1
+          check_source splunk-cloud        1000  || FAILED=1
+          check_source soar-on-premises      50  || FAILED=1
+          check_source soar-cloud            50  || FAILED=1
+          check_source lantern              500  || FAILED=1
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo "ERROR: one or more primary sources failed checks — aborting release"
             exit 1
           fi
-          echo "All primary sources present."
 
       - name: Merge per-source DBs
         run: |
