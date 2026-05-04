@@ -23,14 +23,18 @@ Goal: **current released version + n−1** for each product. ITSI and Observabil
 | `enterprise-security` | Splunk Enterprise Security 8.5 | 8.5 | `help.splunk.com/en/splunk-enterprise-security-8/` | 738 | ✅ OK |
 | `enterprise-security-n1` | Splunk Enterprise Security 8.4 | 8.4 | `help.splunk.com/en/splunk-enterprise-security-8/` | 431 | ✅ OK — 8.4 has fewer pages; pci-compliance and CIM are 8.5-only sections |
 | `enterprise-security-n2` | Splunk Enterprise Security 8.3 | 8.3 | `help.splunk.com/en/splunk-enterprise-security-8/` | 351 | ✅ OK |
-| `admin-manual` | Splunk Configuration File Reference 10.2 | 10.2 | `help.splunk.com/en/data-management/splunk-enterprise-admin-manual/10.2/configuration-file-reference/` | 216 | ✅ OK |
-| `admin-manual-n1` | Splunk Configuration File Reference 10.0 | 10.0 | `help.splunk.com/en/data-management/splunk-enterprise-admin-manual/10.0/configuration-file-reference/` | TBD | ✅ Added (derives from admin-manual) |
-| `splunk-enterprise` | Splunk Enterprise 10.2 | 10.2 | `help.splunk.com/en/splunk-enterprise/` | 3,549 | ✅ OK |
-| `splunk-cloud` | Splunk Cloud Platform 10.3.2512 | 10.3.2512 | `help.splunk.com/en/splunk-cloud-platform/` | 2,658 | ✅ OK |
-| `soar-on-premises` | Splunk SOAR On-Premises 8.5.0 | 8.5.0 | `help.splunk.com/en/splunk-soar/soar-on-premises/` | TBD | ✅ Added |
-| `soar-on-premises-n1` | Splunk SOAR On-Premises 8.4.0 | 8.4.0 | `help.splunk.com/en/splunk-soar/soar-on-premises/` | TBD | ✅ Added (derives from soar-on-premises) |
-| `soar-cloud` | Splunk SOAR Cloud | current | `help.splunk.com/en/splunk-soar/soar-cloud/` | TBD | ✅ Added |
-| `lantern` | Splunk Lantern | current | `lantern.splunk.com/` | 1,240 | ✅ OK |
+| `admin-manual` | Splunk Configuration File Reference 10.2 | 10.2 | `help.splunk.com/en/data-management/splunk-enterprise-admin-manual/10.2/configuration-file-reference/` | 288 | ✅ OK |
+| `admin-manual-n1` | Splunk Configuration File Reference 10.0 | 10.0 | `help.splunk.com/en/data-management/splunk-enterprise-admin-manual/10.0/configuration-file-reference/` | 501 | ✅ OK |
+| `splunk-enterprise` | Splunk Enterprise 10.2 | 10.2 | `help.splunk.com/en/splunk-enterprise/` | 3,636 | ✅ OK |
+| `splunk-enterprise-n1` | Splunk Enterprise 10.0 | 10.0 | `help.splunk.com/en/splunk-enterprise/` | 3,785 | ✅ OK |
+| `splunk-cloud` | Splunk Cloud Platform 10.3.2512 | 10.3.2512 | `help.splunk.com/en/splunk-cloud-platform/` | 2,683 | ✅ OK |
+| `splunk-cloud-n1` | Splunk Cloud Platform 10.2.2510 | 10.2.2510 | `help.splunk.com/en/splunk-cloud-platform/` | 2,838 | ✅ OK |
+| `rest-api-reference` | Splunk Enterprise REST API Reference 10.2 | 10.2 | `help.splunk.com/en/splunk-enterprise/rest-api-reference/10.2/` | TBD | ✅ Added |
+| `rest-api-cloud` | Splunk Cloud Platform REST API Reference 10.3.2512 | 10.3.2512 | `help.splunk.com/en/splunk-cloud-platform/rest-api-reference/10.3.2512/` | TBD | ✅ Added |
+| `soar-on-premises` | Splunk SOAR On-Premises 8.5.0 | 8.5.0 | `help.splunk.com/en/splunk-soar/soar-on-premises/` | 354 | ✅ OK |
+| `soar-on-premises-n1` | Splunk SOAR On-Premises 8.4.0 | 8.4.0 | `help.splunk.com/en/splunk-soar/soar-on-premises/` | 363 | ✅ OK |
+| `soar-cloud` | Splunk SOAR Cloud | current | `help.splunk.com/en/splunk-soar/soar-cloud/` | 342 | ✅ OK |
+| `lantern` | Splunk Lantern | current | `lantern.splunk.com/` | 1,279 | ✅ OK |
 
 No blocking known issues.
 
@@ -38,7 +42,7 @@ No blocking known issues.
 
 ## Distribution Model (Phase 2 — complete)
 
-- **GitHub Actions** crawls weekly (Sunday 02:00 UTC) + `workflow_dispatch`; 11-source matrix (`crawl` + `crawl-derived` jobs); aggregation job merges (skipping missing DBs) + exports + publishes release
+- **GitHub Actions** crawls weekly (Sunday 02:00 UTC) + `workflow_dispatch`; 15-source matrix (`crawl` + `crawl-derived` jobs); aggregation job merges (skipping missing DBs) + exports + publishes release
 - **Release assets:** `splunk_docs.db` (full merged), `splunk_docs_<source>.db` (per-source), `manifest.json`
 - **`splunk-setup`** interactive menu — select sources or `all`; downloads per-source DBs, merges, cleans up WAL temp files
 - **`splunk-merge`** combines per-source DBs; `--export-sources` generates per-source files + `manifest.json`

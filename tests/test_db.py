@@ -257,16 +257,22 @@ def test_get_page_reassembles_chunks(conn):
     assert len(page["content_md"]) >= len(long_content) - 100
 
 
-def test_get_page_chunk_url_redirects_to_parent(conn):
+def test_get_page_chunk_url_returns_chunk_with_navigation(conn):
     long_content = "B" * 10_000
     upsert_document(conn, _doc("https://es.example.com/chunked", "enterprise-security", "8.5", long_content))
     parent_row = dict(conn.execute("SELECT * FROM documents WHERE url='https://es.example.com/chunked'").fetchone())
     chunk_document(conn, parent_row)
 
-    # Fetch using a chunk URL — should transparently return the parent
+    # Chunk URL returns the chunk directly, not the reassembled parent
     page = get_page(conn, "https://es.example.com/chunked#chunk-0")
     assert page is not None
-    assert page["url"] == "https://es.example.com/chunked"
+    assert page["url"] == "https://es.example.com/chunked#chunk-0"
+    assert page["parent_url"] == "https://es.example.com/chunked"
+    assert page["chunk_index"] == 0
+    assert page["total_chunks"] > 1
+    assert "next_chunk_url" in page
+    assert "prev_chunk_url" not in page  # first chunk has no prev
+    assert "chunk_note" in page
 
 
 def test_get_page_missing_url_returns_none(conn):

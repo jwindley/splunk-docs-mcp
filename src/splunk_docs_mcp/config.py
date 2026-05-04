@@ -146,6 +146,9 @@ _LANTERN_BLOCKED = [
     "https://lantern.splunk.com/hc",  # auth-gated Help Center section
 ]
 
+_REST_ENT_BASE = "https://help.splunk.com/en/splunk-enterprise/rest-api-reference"
+_REST_CLOUD_BASE = "https://help.splunk.com/en/splunk-cloud-platform/rest-api-reference"
+
 _SOAR_ONPREM_SEEDS = [
     "https://help.splunk.com/en/splunk-soar/soar-on-premises",
     "https://help.splunk.com/en/splunk-soar/soar-on-premises/install-and-upgrade-soar-on-premises",
@@ -244,6 +247,49 @@ def _enterprise_source(source_id: str, *, derive_from: str | None = None) -> Cra
     )
 
 
+def _rest_ent_source(source_id: str, *, derive_from: str | None = None) -> CrawlSource | None:
+    """Factory for Splunk Enterprise REST API Reference sources (current, n-1).
+
+    Version is baked into url_prefix (same pattern as admin-manual). The hub at
+    _REST_ENT_BASE redirects to the current-version page which has the version
+    selector, so it works as a version-agnostic discovery URL.
+    """
+    v = _V.get(source_id)
+    if not v:
+        return None
+    return CrawlSource(
+        source_id=source_id,
+        display_name=f"Splunk Enterprise REST API Reference {v}",
+        version=v,
+        seed_urls=[f"{_REST_ENT_BASE}/{v}"],
+        url_prefix=f"{_REST_ENT_BASE}/{v}/",
+        blocked_path_prefixes=_HELP_BLOCKED,
+        derive_from=derive_from,
+        version_discovery_url=_REST_ENT_BASE if derive_from is None else None,
+    )
+
+
+def _rest_cloud_source(source_id: str, *, derive_from: str | None = None) -> CrawlSource | None:
+    """Factory for Splunk Cloud Platform REST API Reference sources (current, n-1).
+
+    Cloud covers a subset of Enterprise endpoints. Version includes build number
+    (e.g. 10.3.2512) — handled correctly by _is_target_url version filtering.
+    """
+    v = _V.get(source_id)
+    if not v:
+        return None
+    return CrawlSource(
+        source_id=source_id,
+        display_name=f"Splunk Cloud Platform REST API Reference {v}",
+        version=v,
+        seed_urls=[f"{_REST_CLOUD_BASE}/{v}"],
+        url_prefix=f"{_REST_CLOUD_BASE}/{v}/",
+        blocked_path_prefixes=_HELP_BLOCKED,
+        derive_from=derive_from,
+        version_discovery_url=_REST_CLOUD_BASE if derive_from is None else None,
+    )
+
+
 def _cloud_source(source_id: str, *, derive_from: str | None = None) -> CrawlSource | None:
     """Factory for Splunk Cloud Platform sources (current, n1).
 
@@ -290,6 +336,8 @@ PHASE1_SOURCES: list[CrawlSource] = [
         _es_source("enterprise-security-n2", derive_from="enterprise-security"),
         _enterprise_source("splunk-enterprise-n1", derive_from="splunk-enterprise"),
         _cloud_source("splunk-cloud-n1", derive_from="splunk-cloud"),
+        _rest_ent_source("rest-api-reference"),
+        _rest_cloud_source("rest-api-cloud"),
         CrawlSource(
             source_id="soar-on-premises",
             display_name=f"Splunk SOAR On-Premises {_V['soar-on-premises']}",

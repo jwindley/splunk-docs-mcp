@@ -32,28 +32,20 @@ First ever successful crawl of `splunk-enterprise-n1` (10.0) and `splunk-cloud-n
 ### Step 1 — Download and smoke-test the new DB ✅ Done 2026-05-04
 All queries verified. Two bugs found and fixed (see Done section below).
 
-### Step 2 — Tighten SOAR page count thresholds in the workflow
-Now that we have real SOAR page counts (soar-on-premises=363, soar-cloud=354),
-update `.github/workflows/crawl-and-release.yml` verify step:
-- `soar-on-premises`: 50 → **200**
-- `soar-cloud`: 50 → **200**
+### Step 2 — Tighten SOAR page count thresholds in the workflow ✅ Done 2026-05-04
+- `soar-on-premises`: 50 → 200
+- `soar-cloud`: 50 → 200
 
-### Step 3 — Update CLAUDE.md sources table
-Update the "Active Crawl Sources" table with confirmed page counts for all sources,
-especially the new n-1 sources.
+### Step 3 — Update CLAUDE.md sources table ✅ Done 2026-05-04
+- Added splunk-enterprise-n1 and splunk-cloud-n1 rows (were missing)
+- Filled all TBD page counts with confirmed 2026-05-04 numbers
+- Updated Distribution Model note (11 → 13 sources)
 
 ---
 
 ## 🟢 Content expansion (Phase 5)
 
-### Splunk REST API docs
-- Splunk Enterprise and Cloud both have a REST API reference at a separate URL tree on help.splunk.com
-- Identify the seed URL and `url_prefix` for the REST API reference (e.g. `help.splunk.com/en/splunk-enterprise/rest-api-reference/`)
-- Add as a new `CrawlSource` — no other code changes needed
-- Large and valuable: covers every endpoint, request/response params, auth methods
-- Check robots.txt for `Crawl-delay` before adding
-
-### Splunk SDK docs
+### Splunk SDK docs (future)
 - Splunk provides Python, JavaScript, and Java SDKs — docs live at `dev.splunk.com` or similar
 - Investigate URL structure and robots.txt compliance before adding
 - Python SDK is highest priority (most common for automation and custom apps)
@@ -93,6 +85,18 @@ help.splunk.com serves the same page at multiple URL paths (different nav breadc
 ## ⚫ Priority — Future / optional
 
 - [ ] **Add ITSI, Observability** — most-requested missing products
+
+---
+
+## ✅ Done (2026-05-04) — REST API reference sources
+
+- `rest-api-reference` (Enterprise REST API 10.2) and `rest-api-cloud` (Cloud REST API 10.3.2512) added to `config.py`
+- Two factory functions `_rest_ent_source()` / `_rest_cloud_source()` added (version-in-prefix pattern, same as admin-manual)
+- Both added to `versions.json`; `splunk-discover-versions` picks them up automatically via `version_discovery_url`
+- GHA: added to `crawl` matrix, merge list, verify checks (threshold 50 — tighten after first run), release body
+- robots.txt: no `Crawl-delay` on help.splunk.com; `/api/*` Disallow doesn't affect `/en/.../rest-api-reference/`
+- Enterprise has 17 sections; Cloud covers a subset (~6 resource groups)
+- Page counts TBD — update CLAUDE.md and raise verify thresholds after first crawl run
 
 ---
 

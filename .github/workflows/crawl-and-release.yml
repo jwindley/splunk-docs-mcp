@@ -63,6 +63,8 @@ jobs:
           - admin-manual
           - splunk-enterprise
           - splunk-cloud
+          - rest-api-reference
+          - rest-api-cloud
           - soar-on-premises
           - soar-cloud
           - lantern
@@ -250,8 +252,10 @@ jobs:
           check_source admin-manual         100  || FAILED=1
           check_source splunk-enterprise   1500  || FAILED=1
           check_source splunk-cloud        1000  || FAILED=1
-          check_source soar-on-premises      50  || FAILED=1
-          check_source soar-cloud            50  || FAILED=1
+          check_source rest-api-reference    50   || FAILED=1
+          check_source rest-api-cloud        50   || FAILED=1
+          check_source soar-on-premises     200  || FAILED=1
+          check_source soar-cloud           200  || FAILED=1
           check_source lantern              500  || FAILED=1
 
           if [ "$FAILED" -ne 0 ]; then
@@ -266,6 +270,7 @@ jobs:
                      admin-manual admin-manual-n1 \
                      splunk-enterprise splunk-enterprise-n1 \
                      splunk-cloud splunk-cloud-n1 \
+                     rest-api-reference rest-api-cloud \
                      soar-on-premises soar-on-premises-n1 soar-cloud lantern; do
             if [ -f "data/${src}.db" ]; then
               DBS="$DBS data/${src}.db"
@@ -299,6 +304,8 @@ jobs:
             - Splunk Enterprise 10.0, 10.2
             - Splunk Cloud Platform 10.2.2510, 10.3.2512
             - Splunk Configuration File Reference 10.0, 10.2
+            - Splunk Enterprise REST API Reference 10.2
+            - Splunk Cloud Platform REST API Reference 10.3.2512
             - Splunk SOAR On-Premises 8.5.0, 8.4.0
             - Splunk SOAR Cloud (current)
             - Splunk Lantern (current)

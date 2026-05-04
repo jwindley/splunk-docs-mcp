@@ -719,6 +719,11 @@ def search_docs(
     Title matches are weighted 10x higher than body matches via the bm25()
     column weights argument.  Lower (more negative) score = better match.
     """
+    # FTS5's unicode61 tokenizer splits on non-word characters anyway, so
+    # strip them before the first execute rather than catching the syntax error.
+    # Hyphens must also be removed: FTS5 parses "risk-based" as "risk NOT based",
+    # then throws "no such column: based" when it tries to validate the column filter.
+    query = re.sub(r"[^\w\s]", " ", query)
     params: list = [query]
     filters = ""
     if source:
@@ -763,15 +768,7 @@ def search_docs(
         ORDER BY score
         LIMIT ?
         """
-    try:
-        rows = conn.execute(_sql, params).fetchall()
-    except sqlite3.OperationalError:
-        # FTS5 rejects queries with dots or other special characters (e.g.
-        # "inputs.conf"). The unicode61 tokenizer splits on those characters
-        # anyway, so replacing them with spaces gives equivalent results.
-        sanitized = re.sub(r"[^\w\s-]", " ", params[0])
-        params[0] = sanitized
-        rows = conn.execute(_sql, params).fetchall()
+    rows = conn.execute(_sql, params).fetchall()
 
     # Deduplicate: multiple chunks of the same parent may match; keep the
     # best-scoring chunk per canonical (parent) URL.  BM25 score is negative
@@ -781,6 +778,10 @@ def search_docs(
         d = dict(r)
         chunk_of = d.pop("chunk_of")
         canonical = chunk_of if chunk_of else d["url"]
+        if chunk_of:
+            # Expose the chunk URL so callers can pass it to get_page() to read
+            # just that 1,500-char slice instead of the full reassembled page.
+            d["chunk_url"] = d["url"]
         d["url"] = canonical
         d["crawled"] = (d.pop("crawled_at") or "")[:10]
         if canonical not in seen:
@@ -793,7 +794,7 @@ def get_page(conn: sqlite3.Connection, url: str) -> dict | None:
     row = conn.execute(
         """
         SELECT url, title, source, version, section, subsection,
-               content_md, crawled_at, has_chunks, chunk_of,
+               content_md, crawled_at, has_chunks, chunk_of, chunk_index,
                length(content_md) AS char_count
         FROM documents
         WHERE url = ?
@@ -806,9 +807,28 @@ def get_page(conn: sqlite3.Connection, url: str) -> dict | None:
     page = dict(row)
 
     if page.get("chunk_of"):
-        # Called with a chunk URL — silently redirect to the parent
+        # Called with a chunk URL — return the chunk content directly so the
+        # model can read specific sections of large pages without getting the
+        # truncated full document.  Include navigation info for adjacent chunks.
         parent_url: str = page["chunk_of"]
-        page = get_page(conn, parent_url)
+        idx: int = page.get("chunk_index") or 0
+        total: int = conn.execute(
+            "SELECT COUNT(*) FROM documents WHERE chunk_of = ?", (parent_url,)
+        ).fetchone()[0]
+        page["parent_url"] = parent_url
+        page["chunk_index"] = idx
+        page["total_chunks"] = total
+        if idx > 0:
+            page["prev_chunk_url"] = f"{parent_url}#chunk-{idx - 1}"
+        if idx < total - 1:
+            page["next_chunk_url"] = f"{parent_url}#chunk-{idx + 1}"
+        page["chunk_note"] = (
+            f"Chunk {idx + 1} of {total} for this page. "
+            "Use next_chunk_url / prev_chunk_url to navigate adjacent sections, "
+            "or call get_page(parent_url) to get the full (possibly truncated) page."
+        )
+        page.pop("has_chunks", None)
+        page.pop("chunk_of", None)
         return page
 
     if page.get("has_chunks"):

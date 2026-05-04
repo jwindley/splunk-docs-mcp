@@ -311,8 +311,12 @@ def search_docs(
     ~30-token snippet showing where the query terms appear in the content.
     Lower score values indicate better matches (SQLite BM25 convention).
 
-    Large documents are indexed as overlapping chunks so results may point to
-    a specific section of a page; get_page() always returns the full document.
+    Large documents (e.g. server.conf, transforms.conf) are split into
+    overlapping 1,500-character chunks. When a result came from a chunk, the
+    result includes a 'chunk_url' field alongside the parent 'url'. Pass the
+    chunk_url to get_page() to retrieve just that section (~1,500 chars) with
+    navigation pointers to adjacent chunks — much more efficient than fetching
+    the truncated full page.
 
     If the returned snippets do not directly address the question, state that
     explicitly rather than synthesising an answer from partially relevant content.
@@ -475,6 +479,8 @@ def search_docs_hybrid(
 # Tool: get_page
 # ---------------------------------------------------------------------------
 
+_GET_PAGE_MAX_CHARS = 40_000  # ~10K tokens; server.conf is 330K — cap it
+
 @mcp.tool()
 def get_page(
     url: Annotated[
@@ -486,16 +492,35 @@ def get_page(
     ],
 ) -> dict:
     """
-    Retrieve the full Markdown content of a specific documentation page by URL.
+    Retrieve the Markdown content of a documentation page or chunk by URL.
 
-    Returns title, source, version, section, full Markdown body, crawl timestamp,
-    and character count. Returns an error dict if the URL is not in the index.
+    Pass a plain page URL to get the full document (truncated at 40,000 chars
+    for very large pages like server.conf). When truncated, a 'truncated' flag
+    and 'total_chars' are included.
+
+    Pass a chunk_url from search_docs() results to get just that 1,500-char
+    section. The response includes chunk_index, total_chunks, prev_chunk_url,
+    and next_chunk_url so you can walk adjacent sections without re-searching.
+
+    For large conf files (server.conf, transforms.conf etc.): search_docs()
+    first to find the chunk containing the stanza you need, then call
+    get_page(chunk_url) to read it and navigate with next_chunk_url.
     """
     t0 = time.perf_counter()
     try:
         page = db_get_page(_get_db(), url)
         if page is None:
             return {"error": f"Page not found in index: {url}"}
+        content = page.get("content_md") or ""
+        if len(content) > _GET_PAGE_MAX_CHARS:
+            page["content_md"] = content[:_GET_PAGE_MAX_CHARS]
+            page["truncated"] = True
+            page["total_chars"] = len(content)
+            page["truncation_note"] = (
+                f"Content truncated at {_GET_PAGE_MAX_CHARS:,} chars "
+                f"(full page is {len(content):,} chars). "
+                "Use search_docs() with specific keywords to locate a particular stanza or section."
+            )
         return page
     finally:
         logger.info("get_page(url=%r) — %.1f ms", url, (time.perf_counter() - t0) * 1000)
