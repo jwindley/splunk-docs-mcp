@@ -4,6 +4,56 @@ _Last updated: 2026-05-04_
 
 ---
 
+## 🔴 Immediate: verify 2026-05-04 crawl and tighten thresholds
+
+### Context
+All 15 jobs green on the 2026-05-04 manual run (first run with browser UA fix).
+First ever successful crawl of `splunk-enterprise-n1` (10.0) and `splunk-cloud-n1` (10.2.2510).
+78,838 total rows in merged DB.
+
+### Crawl results (baseline page counts — update CLAUDE.md after verifying)
+
+| Source | Crawled | In DB | Notes |
+|--------|---------|-------|-------|
+| enterprise-security | 730 | 779 | ES 8.5 |
+| admin-manual | 288 | 288 | Config ref 10.2 |
+| splunk-enterprise | 3,636 | 3,736 | Enterprise 10.2 |
+| splunk-cloud | 2,683 | 2,912 | Cloud 10.3.2512 |
+| soar-on-premises | 354 | 363 | SOAR On-Prem 8.5.0 |
+| soar-cloud | 342 | 354 | SOAR Cloud |
+| lantern | 1 (incremental) | 1,279 | Unchanged since last run |
+| enterprise-security-n1 | 477 stored, 349 skipped | — | ES 8.4 |
+| enterprise-security-n2 | 405 stored, 413 skipped | — | ES 8.3 |
+| admin-manual-n1 | 501 stored, 288 skipped | — | Config ref 10.0 |
+| soar-on-premises-n1 | 363 | — | SOAR On-Prem 8.4.0 |
+| **splunk-enterprise-n1** | **3,785 stored, 440 skipped** | — | **Enterprise 10.0 — first run** |
+| **splunk-cloud-n1** | **2,838 stored, 17 skipped** | — | **Cloud 10.2.2510 — first run** |
+
+### Step 1 — Download and smoke-test the new DB
+```bash
+uv run splunk-setup   # select "all" or individual sources
+```
+Then start MCP server and run these queries via Claude:
+- `get_index_info` — verify total pages, all 13 sources listed, DB size reasonable
+- `search_docs("inputs.conf", version="10.0")` — should return Enterprise 10.0 results
+- `search_docs("inputs.conf", version="10.2.2510")` — should return Cloud 10.2.2510 results
+- `search_docs("correlation search", version="8.5")` — ES 8.5 results
+- `search_docs("correlation search", version="8.4")` — ES 8.4 results (version_tags match)
+- `search_docs("playbook", source="soar-cloud")` — SOAR Cloud results
+- `search_docs_semantic("how to configure indexes")` — general semantic search
+
+### Step 2 — Tighten SOAR page count thresholds in the workflow
+Now that we have real SOAR page counts (soar-on-premises=363, soar-cloud=354),
+update `.github/workflows/crawl-and-release.yml` verify step:
+- `soar-on-premises`: 50 → **200**
+- `soar-cloud`: 50 → **200**
+
+### Step 3 — Update CLAUDE.md sources table
+Update the "Active Crawl Sources" table with confirmed page counts for all sources,
+especially the new n-1 sources.
+
+---
+
 ## 🟢 Content expansion (Phase 5)
 
 ### Splunk REST API docs
