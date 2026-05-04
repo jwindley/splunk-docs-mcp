@@ -6,7 +6,7 @@ _Last updated: 2026-05-04 (Tier 2: automatic version discovery)_
 
 ## Current Status
 
-**Phase 1, 2, Phase 3, Option B, Phase 4, and Tier 2 version auto-discovery are complete.** GHA workflow runs 11 sources (ES 8.3/8.4/8.5, Enterprise 10.2, Cloud 10.3.2512, admin-manual 10.0/10.2, SOAR on-prem 8.4/8.5, SOAR Cloud, Lantern). Cross-version content deduplication via `version_tags` is live. `splunk-discover-versions` auto-detects current versions before each crawl.
+**All phases complete.** GHA workflow runs 13 sources (ES 8.3/8.4/8.5, Enterprise 10.0/10.2, Cloud 10.2.2510/10.3.2512, admin-manual 10.0/10.2, SOAR on-prem 8.4/8.5, SOAR Cloud, Lantern). `splunk-discover-versions` auto-detects current versions before each crawl and commits updated `versions.json` back to the repo.
 
 ---
 
@@ -18,7 +18,7 @@ _Last updated: 2026-05-04 (Tier 2: automatic version discovery)_
 | `.gitignore` | ✅ Done | Includes merge temp patterns (*.tmp, *.tmp-wal, *.tmp-shm) |
 | `.python-version` | ✅ Done | `3.12` |
 | `src/splunk_docs_mcp/__init__.py` | ✅ Done | |
-| `src/splunk_docs_mcp/config.py` | ✅ Done | 11 active sources; `get_source_version_pairs()` for version merge; `version_discovery_url` field; null-version filtering |
+| `src/splunk_docs_mcp/config.py` | ✅ Done | 13 active sources; `_enterprise_source()` / `_cloud_source()` factories; `version_discovery_url` field; null-version filtering |
 | `src/splunk_docs_mcp/discover.py` | ✅ Done | `splunk-discover-versions` CLI; parses `<select id="version-select">` on help.splunk.com; updates versions.json |
 | `src/splunk_docs_mcp/db.py` | ✅ Done | Schema + all helpers; `content_md_hash`; `version_tags`; `run_version_merge_pass()`; `run_dedup_pass()` uses `content_md_hash`; version filter matches `json_each(version_tags)` |
 | `src/splunk_docs_mcp/extractor.py` | ✅ Done | |

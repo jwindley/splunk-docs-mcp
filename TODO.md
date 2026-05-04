@@ -38,13 +38,31 @@ _Last updated: 2026-05-04_
 
 ## 🟡 Operational improvements
 
-No pending items.
+### Cross-source dedup: storage not just search (future)
+- Currently `is_duplicate = 1` suppresses duplicates in search results but keeps both rows in the DB — so Enterprise and Cloud share a large overlap (~2,006+ pages) that is stored twice
+- The version dedup (`version_tags`) is storage-efficient: it deletes the derived row and tags the parent
+- A proper fix would apply the same delete+tag approach cross-source: delete the Cloud duplicate, update the Enterprise row's `version_tags` to include Cloud, and make `get_page(cloud_url)` redirect to the Enterprise row via `content_md_hash` lookup
+- Impact grows as more n-1 sources are added (Enterprise 10.0 + Cloud 10.2.2510 will add more overlap)
+- Not urgent — search quality is unaffected; this is a DB size / download size concern
 
 ---
 
 ## ⚫ Priority — Future / optional
 
 - [ ] **Add ITSI, Observability** — most-requested missing products
+
+---
+
+## ✅ Done (2026-05-04) — Enterprise 10.0 and Cloud 10.2.2510 n-1 sources
+
+- Previous attempts pre-dated `derive_from` — the mechanism that makes this possible was already used for ES 8.4/8.3
+- Both products use version as an isolated path segment (`/10.2/`, `/10.3.2512/`) — identical URL substitution pattern
+- Section hubs (e.g. `/administer/install-and-upgrade`) redirect to current-version content pages which have `<select id="version-select">`
+- `_enterprise_source()` and `_cloud_source()` factory functions added to `config.py`; replace the old inline definitions
+- `splunk-enterprise-n1: "10.0"` and `splunk-cloud-n1: "10.2.2510"` added to `versions.json`
+- `splunk-discover-versions` now covers Enterprise (`/administer/install-and-upgrade`) and Cloud (`/administer/admin-manual`) version selectors
+- GHA `crawl-derived` matrix and merge step updated; release body updated
+- Note: no 10.1 exists for either product — Splunk skipped it; 10.0 is the true n-1
 
 ---
 
