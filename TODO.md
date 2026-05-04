@@ -29,18 +29,8 @@ First ever successful crawl of `splunk-enterprise-n1` (10.0) and `splunk-cloud-n
 | **splunk-enterprise-n1** | **3,785 stored, 440 skipped** | — | **Enterprise 10.0 — first run** |
 | **splunk-cloud-n1** | **2,838 stored, 17 skipped** | — | **Cloud 10.2.2510 — first run** |
 
-### Step 1 — Download and smoke-test the new DB
-```bash
-uv run splunk-setup   # select "all" or individual sources
-```
-Then start MCP server and run these queries via Claude:
-- `get_index_info` — verify total pages, all 13 sources listed, DB size reasonable
-- `search_docs("inputs.conf", version="10.0")` — should return Enterprise 10.0 results
-- `search_docs("inputs.conf", version="10.2.2510")` — should return Cloud 10.2.2510 results
-- `search_docs("correlation search", version="8.5")` — ES 8.5 results
-- `search_docs("correlation search", version="8.4")` — ES 8.4 results (version_tags match)
-- `search_docs("playbook", source="soar-cloud")` — SOAR Cloud results
-- `search_docs_semantic("how to configure indexes")` — general semantic search
+### Step 1 — Download and smoke-test the new DB ✅ Done 2026-05-04
+All queries verified. Two bugs found and fixed (see Done section below).
 
 ### Step 2 — Tighten SOAR page count thresholds in the workflow
 Now that we have real SOAR page counts (soar-on-premises=363, soar-cloud=354),
@@ -74,6 +64,23 @@ especially the new n-1 sources.
 
 ## 🟡 Operational improvements
 
+### Within-source URL duplication (page count inflation)
+help.splunk.com serves the same page at multiple URL paths (different nav breadcrumbs, cross-links). The crawler visits all of them, resulting in DB rows with identical `content_md_hash` but different URLs. This inflates raw row counts significantly:
+- Cloud 10.3.2512: 2,912 rows → 2,034 distinct content pages (30% noise)
+- SOAR Cloud: 354 rows → 213 distinct pages (40% noise)
+- Enterprise 10.2: 3,736 rows → 2,650 distinct pages (29% noise)
+
+**Fixed in `merge.py`:** `export_sources()` now uses `COUNT(DISTINCT COALESCE(content_md_hash, url))` for `pages` and `shared_pages` in `manifest.json`, so `splunk-setup` displays accurate page counts. Takes effect on next crawl/release.
+
+**Not fixed:** the duplicate rows are still stored and searchable (multiple results from the same page can appear in search). A future improvement could deduplicate within a source during merge using the same delete+version_tag approach used for cross-version dedup. Not urgent — doesn't affect correctness, only result diversity.
+
+### Admin-manual n-1: version dedup ineffective
+`.conf.spec` pages embed the Splunk version string in the file body (e.g. `# Version 10.2.2`), so `content_md_hash` differs between 10.0 and 10.2 even for otherwise identical configs. Result: `admin-manual-n1` shows 473 "unique" pages when most are structurally identical to `admin-manual` 10.2 pages. Only 4 pages deduplicated (those without embedded version strings).
+
+**Impact:** storage is doubled for admin-manual. Search for `version="10.0"` returns correct results (the 10.0 spec content). The dedup failure doesn't cause correctness issues, just wasted storage.
+
+**No easy fix** — stripping version headers from extracted Markdown before hashing would require source-specific extraction logic. Lower priority than other work.
+
 ### Cross-source dedup: storage not just search (future)
 - Currently `is_duplicate = 1` suppresses duplicates in search results but keeps both rows in the DB — so Enterprise and Cloud share a large overlap (~2,006+ pages) that is stored twice
 - The version dedup (`version_tags`) is storage-efficient: it deletes the derived row and tags the parent
@@ -86,6 +93,16 @@ especially the new n-1 sources.
 ## ⚫ Priority — Future / optional
 
 - [ ] **Add ITSI, Observability** — most-requested missing products
+
+---
+
+## ✅ Done (2026-05-04) — Smoke-test fixes
+
+### Bug: version-filtered semantic search returned empty results
+`search_docs_semantic_vec` used ANN (sqlite-vec top-k) then post-filtered by version. For n-1 versions that are a small fraction of the corpus (~1–3%), the top-k ANN candidates were overwhelmingly from the dominant version, leaving nothing after filtering. Fixed: when `version=` is set, bypass ANN and do a targeted numpy scan over the version-filtered row subset (small set, fast, exact).
+
+### Fix: manifest.json page counts now show distinct content pages
+`merge.py export_sources()` was using `COUNT(*)` for `own_pages` and `shared_pages`, which included within-source URL duplicates (same content at multiple URLs). Changed to `COUNT(DISTINCT COALESCE(content_md_hash, url))`. `splunk-setup` now shows accurate page counts. Takes effect on next crawl/release.
 
 ---
 

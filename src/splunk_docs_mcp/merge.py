@@ -112,8 +112,11 @@ def _export_sources_inner(conn, export_dir: Path) -> None:
         _export_source_db(conn, source_id, out_path)
         size = out_path.stat().st_size
 
+        # Count distinct content pages (COALESCE falls back to url for the rare
+        # pages where content_md_hash is NULL, so they each count once).
         own_pages = conn.execute(
-            "SELECT COUNT(*) FROM documents WHERE source = ? AND chunk_of IS NULL",
+            "SELECT COUNT(DISTINCT COALESCE(content_md_hash, url)) FROM documents"
+            " WHERE source = ? AND chunk_of IS NULL",
             (source_id,),
         ).fetchone()[0]
         own_chunks = conn.execute(
@@ -121,11 +124,12 @@ def _export_sources_inner(conn, export_dir: Path) -> None:
             (source_id,),
         ).fetchone()[0]
 
-        # Shared pages for n-1 sources: pages in the parent tagged with this version
+        # Shared pages for n-1 sources: distinct content pieces in the parent
+        # tagged with this version (using same distinct-hash logic as own_pages).
         shared_pages = 0
         if parent_source and derived_version:
             shared_pages = conn.execute(
-                "SELECT COUNT(*) FROM documents "
+                "SELECT COUNT(DISTINCT COALESCE(content_md_hash, url)) FROM documents "
                 "WHERE source = ? AND chunk_of IS NULL "
                 "AND EXISTS (SELECT 1 FROM json_each(version_tags) jt WHERE jt.value = ?)",
                 (parent_source, derived_version),

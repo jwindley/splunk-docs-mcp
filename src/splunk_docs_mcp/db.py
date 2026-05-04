@@ -1086,7 +1086,54 @@ def search_docs_semantic_vec(
     Fetches limit*4 candidates from vec_documents, joins to documents for
     metadata and source/version filtering, deduplicates chunk→parent, returns
     top limit results ordered by cosine similarity (higher = better).
+
+    When version is set, ANN post-filtering is unreliable for minority versions
+    (n-1 rows are a small fraction of the corpus, so top-k ANN candidates are
+    unlikely to include them).  In that case we fall back to a targeted numpy
+    scan over just the version-filtered rows, which is small and fast.
     """
+    import numpy as np  # lazy import
+
+    if version:
+        # Targeted scan: load embeddings only for this version (small set).
+        src_filter = " AND source = ?" if source else ""
+        params: list = [version, version]
+        if source:
+            params.append(source)
+        rows = conn.execute(
+            "SELECT id, url, title, source, version, section, chunk_of, crawled_at, embedding "
+            "FROM documents "
+            "WHERE embedding IS NOT NULL AND has_chunks = 0 "
+            "AND (version = ? OR EXISTS "
+            "  (SELECT 1 FROM json_each(version_tags) jt WHERE jt.value = ?))"
+            f"{src_filter}",
+            params,
+        ).fetchall()
+        if not rows:
+            return []
+        mat = np.stack(
+            [np.frombuffer(r["embedding"], dtype=np.float32) for r in rows]
+        )
+        scores = mat @ query_vec
+        ranked = np.argsort(scores)[::-1]
+        seen: dict[str, dict] = {}
+        for i in ranked:
+            if len(seen) >= limit:
+                break
+            r = rows[i]
+            canonical = r["chunk_of"] if r["chunk_of"] else r["url"]
+            if canonical not in seen:
+                seen[canonical] = {
+                    "url": canonical,
+                    "title": r["title"].split(" [")[0],
+                    "source": r["source"],
+                    "version": r["version"],
+                    "section": r["section"],
+                    "score": round(float(scores[i]), 4),
+                    "crawled": (r["crawled_at"] or "")[:10],
+                }
+        return list(seen.values())
+
     fetch_k = limit * 4
 
     candidates = conn.execute(
@@ -1100,38 +1147,30 @@ def search_docs_semantic_vec(
     dist_map = {r[0]: r[1] for r in candidates}
 
     placeholders = ",".join("?" * len(rowids))
-    params: list = list(rowids)
+    ann_params: list = list(rowids)
     filters = ""
     if source:
         filters += " AND source = ?"
-        params.append(source)
-    if version:
-        filters += (
-            " AND (version = ? OR EXISTS ("
-            "SELECT 1 FROM json_each(version_tags) jt WHERE jt.value = ?))"
-        )
-        params.append(version)
-        params.append(version)
-    else:
-        filters += " AND is_duplicate = 0"
+        ann_params.append(source)
+    filters += " AND is_duplicate = 0"
 
-    rows = conn.execute(
+    ann_rows = conn.execute(
         f"SELECT id, url, title, source, version, section, chunk_of, crawled_at "
         f"FROM documents WHERE id IN ({placeholders}){filters}",
-        params,
+        ann_params,
     ).fetchall()
 
     # Sort by distance ascending (closest = most similar)
-    sorted_rows = sorted([dict(r) for r in rows], key=lambda r: dist_map[r["id"]])
+    sorted_rows = sorted([dict(r) for r in ann_rows], key=lambda r: dist_map[r["id"]])
 
-    seen: dict[str, dict] = {}
+    seen2: dict[str, dict] = {}
     for r in sorted_rows:
-        if len(seen) >= limit:
+        if len(seen2) >= limit:
             break
         canonical = r["chunk_of"] if r["chunk_of"] else r["url"]
-        if canonical not in seen:
+        if canonical not in seen2:
             d = dist_map[r["id"]]
-            seen[canonical] = {
+            seen2[canonical] = {
                 "url": canonical,
                 "title": r["title"].split(" [")[0],
                 "source": r["source"],
@@ -1142,7 +1181,7 @@ def search_docs_semantic_vec(
                 "crawled": (r["crawled_at"] or "")[:10],
             }
 
-    return list(seen.values())
+    return list(seen2.values())
 
 
 def search_docs_semantic(
