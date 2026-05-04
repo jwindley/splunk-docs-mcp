@@ -131,6 +131,10 @@ jobs:
             derive_db: enterprise-security
           - source: admin-manual-n1
             derive_db: admin-manual
+          - source: splunk-enterprise-n1
+            derive_db: splunk-enterprise
+          - source: splunk-cloud-n1
+            derive_db: splunk-cloud
           - source: soar-on-premises-n1
             derive_db: soar-on-premises
 
@@ -237,7 +241,9 @@ jobs:
         run: |
           DBS=""
           for src in enterprise-security enterprise-security-n1 enterprise-security-n2 \
-                     admin-manual admin-manual-n1 splunk-enterprise splunk-cloud \
+                     admin-manual admin-manual-n1 \
+                     splunk-enterprise splunk-enterprise-n1 \
+                     splunk-cloud splunk-cloud-n1 \
                      soar-on-premises soar-on-premises-n1 soar-cloud lantern; do
             if [ -f "data/${src}.db" ]; then
               DBS="$DBS data/${src}.db"
@@ -268,8 +274,8 @@ jobs:
 
             **Sources indexed:**
             - Splunk Enterprise Security 8.3, 8.4, 8.5
-            - Splunk Enterprise 10.2
-            - Splunk Cloud Platform 10.3.2512
+            - Splunk Enterprise 10.0, 10.2
+            - Splunk Cloud Platform 10.2.2510, 10.3.2512
             - Splunk Configuration File Reference 10.0, 10.2
             - Splunk SOAR On-Premises 8.5.0, 8.4.0
             - Splunk SOAR Cloud (current)

@@ -114,6 +114,8 @@ _V = _load_versions()
 # ---------------------------------------------------------------------------
 
 _ES_BASE = "https://help.splunk.com/en/splunk-enterprise-security-8"
+_ENT_BASE = "https://help.splunk.com/en/splunk-enterprise"
+_CLOUD_BASE = "https://help.splunk.com/en/splunk-cloud-platform"
 
 _ES_SECTIONS = [
     "install",
@@ -216,6 +218,55 @@ def _admin_source(source_id: str, *, derive_from: str | None = None) -> CrawlSou
     )
 
 
+def _enterprise_source(source_id: str, *, derive_from: str | None = None) -> CrawlSource | None:
+    """Factory for Splunk Enterprise sources (current, n1).
+
+    Returns None if versions.json has a null value for source_id.
+    Section hubs redirect to current-version content pages that have the version selector,
+    so the subsection hub URL works as a version-agnostic discovery URL.
+    derive_from uses URL substitution to seed older-version crawls from current-version URLs.
+    """
+    v = _V.get(source_id)
+    if not v:
+        return None
+    return CrawlSource(
+        source_id=source_id,
+        display_name=f"Splunk Enterprise {v}",
+        version=v,
+        seed_urls=[f"{_ENT_BASE}/"],
+        url_prefix=f"{_ENT_BASE}/",
+        blocked_path_prefixes=_HELP_BLOCKED,
+        derive_from=derive_from,
+        version_discovery_url=(
+            f"{_ENT_BASE}/administer/install-and-upgrade" if derive_from is None else None
+        ),
+    )
+
+
+def _cloud_source(source_id: str, *, derive_from: str | None = None) -> CrawlSource | None:
+    """Factory for Splunk Cloud Platform sources (current, n1).
+
+    Returns None if versions.json has a null value for source_id.
+    Cloud versions include a build number (e.g. 10.3.2512, 10.2.2510); these match
+    _VERSION_SEG_RE and are handled correctly by _is_target_url version filtering.
+    """
+    v = _V.get(source_id)
+    if not v:
+        return None
+    return CrawlSource(
+        source_id=source_id,
+        display_name=f"Splunk Cloud Platform {v}",
+        version=v,
+        seed_urls=[f"{_CLOUD_BASE}/"],
+        url_prefix=f"{_CLOUD_BASE}/",
+        blocked_path_prefixes=_HELP_BLOCKED,
+        derive_from=derive_from,
+        version_discovery_url=(
+            f"{_CLOUD_BASE}/administer/admin-manual" if derive_from is None else None
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Phase 1 sources
 # ---------------------------------------------------------------------------
@@ -225,38 +276,19 @@ _SOAR_ONPREM_DISCOVERY = (
 )
 
 # Sources where version is null in versions.json are excluded from PHASE1_SOURCES.
-# Factories (_es_source, _admin_source) return None for null versions; filter removes them.
+# Factories return None for null versions; list comprehension filter removes them.
 PHASE1_SOURCES: list[CrawlSource] = [
     s
     for s in [
         _es_source("enterprise-security"),
         _admin_source("admin-manual"),
-        CrawlSource(
-            source_id="splunk-enterprise",
-            display_name=f"Splunk Enterprise {_V['splunk-enterprise']}",
-            version=_V["splunk-enterprise"],  # type: ignore[arg-type]
-            seed_urls=[
-                # Landing page only — BFS discovers all section pages from here.
-                # Section-level seeds return HTTP 404 on help.splunk.com and
-                # accumulate dead entries in crawl_state if added explicitly.
-                "https://help.splunk.com/en/splunk-enterprise/",
-            ],
-            url_prefix="https://help.splunk.com/en/splunk-enterprise/",
-            blocked_path_prefixes=_HELP_BLOCKED,
-        ),
-        CrawlSource(
-            source_id="splunk-cloud",
-            display_name=f"Splunk Cloud Platform {_V['splunk-cloud']}",
-            version=_V["splunk-cloud"],  # type: ignore[arg-type]
-            seed_urls=[
-                "https://help.splunk.com/en/splunk-cloud-platform/",
-            ],
-            url_prefix="https://help.splunk.com/en/splunk-cloud-platform/",
-            blocked_path_prefixes=_HELP_BLOCKED,
-        ),
+        _enterprise_source("splunk-enterprise"),
+        _cloud_source("splunk-cloud"),
         _es_source("enterprise-security-n1", derive_from="enterprise-security"),
         _admin_source("admin-manual-n1", derive_from="admin-manual"),
         _es_source("enterprise-security-n2", derive_from="enterprise-security"),
+        _enterprise_source("splunk-enterprise-n1", derive_from="splunk-enterprise"),
+        _cloud_source("splunk-cloud-n1", derive_from="splunk-cloud"),
         CrawlSource(
             source_id="soar-on-premises",
             display_name=f"Splunk SOAR On-Premises {_V['soar-on-premises']}",
