@@ -20,20 +20,6 @@ _Last updated: 2026-05-04_
 - May need a separate `CrawlSource` with different `url_prefix` and `blocked_path_prefixes`
 - Worth checking if `dev.splunk.com` allows crawling — may need to fall back to GitHub-hosted docs
 
-### n-1 for Enterprise and Cloud (needs investigation, not blocked)
-- Enterprise URLs DO contain an isolated version segment: e.g.
-  `help.splunk.com/en/splunk-enterprise/get-started/install-and-upgrade/10.2/page`
-  so URL derivation (`/10.2/` → `/10.1/`) should work the same as ES
-- Enterprise 10.1 and Cloud 10.2 were previously attempted and dropped with a note
-  "seeding problem unsolvable without major rework" — but the exact failure cause was
-  never documented. Likely candidates: mass 404s on derived seeds if section structure
-  changed between versions, or the base seed URL not linking into version-specific paths
-- **Action:** check `git log` for the commit that dropped these sources and read the
-  context; then attempt a test crawl with `--section` on a small section to see if
-  derived URLs resolve correctly
-- If it works: standard `CrawlSource` entry with `derive_from`, same as ES 8.4
-- Could unlock ~5,000+ unique pages; skip until admin-manual n-1 is done first
-
 ---
 
 ## 🟡 Operational improvements
