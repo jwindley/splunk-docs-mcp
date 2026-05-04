@@ -26,10 +26,11 @@ DB_PATH = DATA_DIR / "splunk_docs.db"
 
 CRAWL_HEADERS = {
     "User-Agent": (
-        "splunk-docs-mcp-crawler/0.1 "
-        "(local knowledge base indexer; not for commercial use)"
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
     ),
-    "Accept": "text/html,application/xhtml+xml",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
 }
 
