@@ -201,6 +201,13 @@ mcp = FastMCP(
 
         f"Available sources (use source= to target one; combine with version= to pinpoint):\n"
         f"{_source_list}\n\n"
+
+        "CALL LIMIT — 4 tool calls maximum per question. Read this before choosing any tool.\n"
+        "  Count every search_docs*, browse_section, list_sections, and get_page call.\n"
+        "  After your 4th call, write your answer immediately. Never make a 5th call.\n"
+        "  Most questions need only 2 calls. At call 3, stop searching — read what you have.\n"
+        "  Never call get_page for a URL you have already fetched in this conversation.\n\n"
+
         "VERSION FILTER — apply on the FIRST call, every call, no exceptions:\n"
         "  User mentions a version → version= goes on every single search call.\n"
         "  WRONG: search_docs_hybrid('event-based detection', source='enterprise-security')\n"
@@ -212,7 +219,7 @@ mcp = FastMCP(
         "  version='8.5' + version_tags=['8.5','8.4'] → authoritative for both versions.\n"
         "  Do NOT say a topic is missing from 8.4 when version_tags contains '8.4'.\n\n"
 
-        "DECISION TREE — apply before every question:\n\n"
+        "DECISION TREE — choose one path per question:\n\n"
 
         "A. CONF FILE STANZA LOOKUP (.conf file question)\n"
         "   → search_docs(stanza_name, source='admin-manual')  [BM25 — finds exact stanza fast]\n"
@@ -222,27 +229,24 @@ mcp = FastMCP(
         "B. SEARCH FIRST (DEFAULT — unknown topic or section)\n"
         "   → search_docs_hybrid(query, source=...)  [BM25 + semantic, RRF-fused]\n"
         "   → get_page(url or chunk_url)             [read the top result]\n"
-        "   DONE. Target: 2 calls.\n\n"
+        "   DONE. 2 calls.\n\n"
 
         "C. KNOWN SECTION (ES feature, product area — not conf files)\n"
         "   → browse_section(section, source)   [lists pages in that section]\n"
         "   → get_page(url)                      [read the most relevant page]\n"
-        "   DONE. Target: 2 calls.\n\n"
+        "   DONE. 2 calls.\n\n"
 
-        "D. POOR RESULTS\n"
-        "   → search_docs(exact term)  OR  search_docs_semantic(concept)\n"
-        "   → get_page(url) if anything useful appears\n"
-        "   STOP. Never reformulate and search a third time. Report what was found.\n\n"
+        "D. COMPARISON QUESTION (A vs B, differences between X and Y, pros/cons)\n"
+        "   → search_docs_hybrid(name_of_A, source=...)   [call 1 — A-specific pages]\n"
+        "   → search_docs_hybrid(name_of_B, source=...)   [call 2 — B-specific pages]\n"
+        "   → get_page(best result for A)                 [call 3]\n"
+        "   → get_page(best result for B)                 [call 4]\n"
+        "   DONE. 4 calls. Search each concept separately — never combine A and B in one query.\n\n"
 
-        "HARD STOP — 4 total tool calls per question maximum.\n"
-        "After 4 calls, write your answer from what you have. Do not make a 5th call.\n"
-        "Most questions need 2 calls. If you are at 3 calls and still searching, stop.\n\n"
-
-        "CALL BUDGET:\n"
-        "  • 2 search calls total across all search tools\n"
-        "  • 1 list_sections or browse_section call\n"
-        "  • 2 get_page calls maximum\n"
-        "  • 0 get_index_info calls (only if user asks about index status)\n\n"
+        "E. POOR RESULTS (first search returned nothing useful)\n"
+        "   → Try one alternative: search_docs(exact term) OR search_docs_semantic(concept)\n"
+        "   → get_page(url) if something useful appears\n"
+        "   STOP. Never search a third time. Report what was found and acknowledge the gap.\n\n"
 
         "CONFIDENCE AND UNCERTAINTY — mandatory:\n"
         "  • If retrieved pages do not directly address the question, say so explicitly "
@@ -264,7 +268,7 @@ mcp = FastMCP(
         "known and you need the page list; never for conf files\n"
         "  list_sections        — orientation only; call once max\n"
         "  get_page             — read a page before answering; pass chunk_url not parent URL "
-        "for conf files; never answer from snippet text alone"
+        "for conf files; never answer from snippet text alone; never repeat a URL"
     ),
 )
 
