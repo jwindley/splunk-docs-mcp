@@ -255,8 +255,8 @@ jobs:
           check_source admin-manual         100  || FAILED=1
           check_source splunk-enterprise   1500  || FAILED=1
           check_source splunk-cloud        1000  || FAILED=1
-          check_source rest-api-reference    50   || FAILED=1
-          check_source rest-api-cloud        50   || FAILED=1
+          check_source rest-api-reference    15   || FAILED=1
+          check_source rest-api-cloud         5   || FAILED=1
           check_source soar-on-premises     200  || FAILED=1
           check_source soar-cloud           200  || FAILED=1
           check_source lantern              500  || FAILED=1

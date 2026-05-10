@@ -146,8 +146,8 @@ _LANTERN_BLOCKED = [
     "https://lantern.splunk.com/hc",  # auth-gated Help Center section
 ]
 
-_REST_ENT_BASE = "https://help.splunk.com/en/splunk-enterprise/rest-api-reference"
-_REST_CLOUD_BASE = "https://help.splunk.com/en/splunk-cloud-platform/rest-api-reference"
+_REST_ENT_BASE = "https://help.splunk.com/en/splunk-enterprise/leverage-rest-apis/rest-api-reference"
+_REST_CLOUD_BASE = "https://help.splunk.com/en/splunk-cloud-platform/leverage-rest-apis/rest-api-reference"
 
 _SOAR_ONPREM_SEEDS = [
     "https://help.splunk.com/en/splunk-soar/soar-on-premises",
