@@ -141,8 +141,8 @@ Versions are detected automatically before each weekly crawl — the table below
 | `admin-manual-n1` | Splunk Configuration File Reference | 10.2 (n−1) |
 | `rest-api-reference` | Splunk Enterprise REST API Reference | 10.4 (current) |
 | `rest-api-cloud` | Splunk Cloud Platform REST API Reference | 10.5.2605 (current) |
-| `soar-on-premises` | Splunk SOAR On-Premises | 8.5.0 (current) |
-| `soar-on-premises-n1` | Splunk SOAR On-Premises | 8.4.0 (n−1) |
+| `soar-on-premises` | Splunk SOAR On-Premises | 8.6.0 (current) |
+| `soar-on-premises-n1` | Splunk SOAR On-Premises | 8.5.0 (n−1) |
 | `soar-cloud` | Splunk SOAR Cloud | current |
 | `lantern` | Splunk Lantern | current |
 
