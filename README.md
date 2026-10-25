@@ -130,9 +130,9 @@ Versions are detected automatically before each weekly crawl — the table below
 
 | Source ID | Product | Version |
 |-----------|---------|---------|
-| `enterprise-security` | Splunk Enterprise Security | 8.7 (current) |
-| `enterprise-security-n1` | Splunk Enterprise Security | 8.6 (n−1) |
-| `enterprise-security-n2` | Splunk Enterprise Security | 8.5 (n−2) |
+| `enterprise-security` | Splunk Enterprise Security | 8.8 (current) |
+| `enterprise-security-n1` | Splunk Enterprise Security | 8.7 (n−1) |
+| `enterprise-security-n2` | Splunk Enterprise Security | 8.6 (n−2) |
 | `splunk-enterprise` | Splunk Enterprise | 10.6 (current) |
 | `splunk-enterprise-n1` | Splunk Enterprise | 10.4 (n−1) |
 | `splunk-cloud` | Splunk Cloud Platform | 10.6 (current) |
