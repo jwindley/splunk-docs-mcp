@@ -135,12 +135,12 @@ Versions are detected automatically before each weekly crawl — the table below
 | `enterprise-security-n2` | Splunk Enterprise Security | 8.6 (n−2) |
 | `splunk-enterprise` | Splunk Enterprise | 10.6 (current) |
 | `splunk-enterprise-n1` | Splunk Enterprise | 10.4 (n−1) |
-| `splunk-cloud` | Splunk Cloud Platform | 10.6 (current) |
-| `splunk-cloud-n1` | Splunk Cloud Platform | 10.5.2605 (n−1) |
+| `splunk-cloud` | Splunk Cloud Platform | 10.7 (current) |
+| `splunk-cloud-n1` | Splunk Cloud Platform | 10.6 (n−1) |
 | `admin-manual` | Splunk Configuration File Reference | 10.6 (current) |
 | `admin-manual-n1` | Splunk Configuration File Reference | 10.4 (n−1) |
 | `rest-api-reference` | Splunk Enterprise REST API Reference | 10.6 (current) |
-| `rest-api-cloud` | Splunk Cloud Platform REST API Reference | 10.6 (current) |
+| `rest-api-cloud` | Splunk Cloud Platform REST API Reference | 10.7 (current) |
 | `soar-on-premises` | Splunk SOAR On-Premises | 8.7.0 (current) |
 | `soar-on-premises-n1` | Splunk SOAR On-Premises | 8.6.0 (n−1) |
 | `soar-cloud` | Splunk SOAR Cloud | current |
