@@ -10,8 +10,8 @@
   "splunk-cloud-n1": "10.6",
   "rest-api-reference": "10.6",
   "rest-api-cloud": "10.7",
-  "soar-on-premises": "8.7.0",
-  "soar-on-premises-n1": "8.6.0",
+  "soar-on-premises": "8.8.0",
+  "soar-on-premises-n1": "8.7.0",
   "soar-cloud": "current",
   "lantern": "current"
 }
